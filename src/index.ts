@@ -61,6 +61,7 @@ import { resolveModels } from "./app/model-routing.ts";
 import { registerSmartCompactTool } from "./app/register-smart-compact-tool.ts";
 import { registerSmartCompactCommand } from "./app/register-smart-compact-command.ts";
 import { createSmartCompactPolicy } from "./app/smart-compact-policy.ts";
+import { registerExtensionApi } from "./app/register-extension-api.ts";
 
 export { findModelById, resolveModels } from "./app/model-routing.ts";
 
@@ -153,6 +154,7 @@ export default function smartCompactExtension(pi: ExtensionAPI) {
   // entirely inside the slot factory — see src/app/pending-slot.ts.
   const pendingRef: PendingSlot = createPendingSlot({ ttlMs: PENDING_TTL_MS });
   const isRunning = createSessionRunLock();
+  const nativeApplyRuns = new Map<string, string>();
   const damageMonitor = new OnlineDamageMonitor();
   const settledAutoTrigger = createSettledAutoTrigger();
   const policy = createSmartCompactPolicy(pi);
@@ -261,7 +263,9 @@ export default function smartCompactExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
+    const expectedRunId = nativeApplyRuns.get(resolveSessionId(ctx));
     const consumed = unwrapConsumed(pendingRef.consume(ctx), ctx);
+    if (expectedRunId && consumed?.runId !== expectedRunId) return { cancel: true };
     if (consumed && stageForNativeApply(consumed, event.signal)) {
       return {
         compaction: {
@@ -272,6 +276,7 @@ export default function smartCompactExtension(pi: ExtensionAPI) {
         },
       };
     }
+    if (expectedRunId) return { cancel: true };
     const config = loadConfig();
     if (!policy.isAutoTriggerEnabled()) return;
     try {
@@ -523,6 +528,10 @@ export default function smartCompactExtension(pi: ExtensionAPI) {
     settledAutoTrigger.clear(sessionId);
     // Native continuity is deliberately not cleared here: shutdown/reload is
     // the process gap the branch-scoped filesystem handoff must survive.
+  });
+
+  registerExtensionApi(pi, {
+    pendingRef, runLock: isRunning, onNativeApplyError, policy, nativeApplyRuns,
   });
 
   registerSmartCompactTool(pi, {

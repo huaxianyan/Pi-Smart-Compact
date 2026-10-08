@@ -25,6 +25,7 @@ describe("smart_compact tool cancellation", () => {
     let command: any;
     const notifications: Array<{ message: string; level: string }> = [];
     smartCompactExtension({
+      events: { on: () => () => {}, emit: () => {} },
       registerCommand: (name: string, definition: any) => {
         if (name === "smart-compact") command = definition;
       },
@@ -54,6 +55,7 @@ describe("smart_compact tool cancellation", () => {
   it("publishes mode and aggregate token-budget controls", () => {
     let tool: any;
     smartCompactExtension({
+      events: { on: () => () => {}, emit: () => {} },
       registerCommand: () => {},
       registerTool: (definition: any) => {
         if (definition.name === "smart_compact") tool = definition;
@@ -157,6 +159,7 @@ describe("smart_compact tool cancellation", () => {
   it("does not start the pipeline when the host signal is already aborted", async () => {
     let tool: any;
     smartCompactExtension({
+      events: { on: () => () => {}, emit: () => {} },
       registerCommand: () => {
         /* noop */
       },

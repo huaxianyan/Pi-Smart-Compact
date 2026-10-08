@@ -68,9 +68,7 @@ export async function prepareRun(rc: RcBase): Promise<PreparedRc> {
       rc.cancellation.timedOut = true;
       rc.cancellation.controller.abort();
       rc.notify(
-        "Smart compact exceeded " +
-          rc.timeoutMs +
-          "ms; Pi will use native compact for this run",
+        "Context summarization exceeded its time budget. Check the provider connection or increase the budget in /smart-compact settings.",
         "warning",
       );
     }, rc.timeoutMs);

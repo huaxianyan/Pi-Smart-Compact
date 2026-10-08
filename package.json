@@ -14,6 +14,10 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"default": "./dist/index.js"
+		},
+		"./extension-api": {
+			"types": "./src/extension-api.ts",
+			"default": "./dist/extension-api.js"
 		}
 	},
 	"author": "Alper Tarhan <alpertarhan@gmail.com>",
@@ -39,6 +43,7 @@
 	],
 	"files": [
 		"dist",
+		"src/extension-api.ts",
 		"docs",
 		"README.md",
 		"ARCHITECTURE.md",
@@ -50,7 +55,7 @@
 	"scripts": {
 		"sync-version": "bun run scripts/sync-version.ts",
 		"prebuild": "bun run sync-version",
-		"build": "rm -rf dist && mkdir dist && bun build ./src/index.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' && bun build ./scripts/provider-eval.ts ./scripts/provider-scenario-eval.ts ./scripts/telemetry-report.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' && bun x tsc --emitDeclarationOnly --outDir dist",
+		"build": "rm -rf dist && mkdir dist && bun build ./src/index.ts ./src/extension-api.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' && bun build ./scripts/provider-eval.ts ./scripts/provider-scenario-eval.ts ./scripts/telemetry-report.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' && bun x tsc --emitDeclarationOnly --outDir dist",
 		"test": "bun test",
 		"bench": "bun bench/hot-paths.bench.ts",
 		"gate": "bun run scripts/eval-gate.ts",
