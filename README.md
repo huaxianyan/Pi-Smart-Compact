@@ -20,6 +20,20 @@ constraints, and open loops—not just a vague recap of the conversation.
 
 </div>
 
+## V2EX recovery fork
+
+This repository maintains the `v2ex-recovery` branch, based on upstream `v9.7.1`.
+For this fork, use the Git source:
+
+```bash
+pi install git:github.com/huaxianyan/pi-smart-compact@v2ex-recovery
+```
+
+Keep one Smart Compact package source and preserve the existing settings.
+See the [fork handoff](docs/STATUS.md) for the current scope and verification
+limits, and the [extension API](docs/EXTENSION_API.md) for the shared protocol.
+The npm installation below describes the upstream release, not this fork.
+
 ## Install
 
 Requires the Pi Coding Agent on Node.js 22.19 or newer. The published extension

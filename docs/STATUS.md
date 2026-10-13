@@ -1,5 +1,11 @@
 # 开发进度
 
+## 当前主线
+
+维护 `huaxianyan/pi-smart-compact` 的 `v2ex-recovery` fork，与 V2EX 配套使用。补丁基于上游 `v9.7.1`，升级上游属于独立任务。
+
+接手先读本文件和 [接口说明](EXTENSION_API.md)。README 保留上游介绍，fork 的安装入口单独说明。本机依赖与构建位置见本地 `AGENTS.md`。
+
 ## 2026-10-08：V2EX 压缩恢复接口
 
 状态：实现与定向验证完成，发布目标为 `huaxianyan/pi-smart-compact` 的 `v2ex-recovery` 分支。
@@ -28,3 +34,13 @@
 安装来源为 `git:github.com/huaxianyan/pi-smart-compact@v2ex-recovery`。
 移除旧 Smart Compact 安装声明，只加载一个实例；原有设置继续使用。
 接口说明见 `docs/EXTENSION_API.md`。后续合并上游版本属于独立任务，不要在恢复补丁里顺带升级。
+
+## 2026-10-13：核对 fork 交接入口
+
+- 本轮基线：`v2ex-recovery` 的 `31fd8db`，已与该远端分支核对一致。
+- 沿用现有进度和接口文档，README 明确 Git fork 与上游 npm 的区别，避免接手时安装到不同实现。
+- 历史验证：8 项定向检查、严格类型检查和 V2EX 真实 pi fixture 配合结果沿用前述记录，本轮未重跑。
+- 验证边界：本轮未构建预发布产物、执行压缩、请求模型或检查当前安装副本，没有更新配置。
+- 继续维护唯一协议入口和既有摘要管线，接口补丁不初始化第二个摘要器，不用 fixture 结果证明真实摘要质量。
+- 下一步：真实长会话观察与上游升级分别立项，保持当前 fork 安装来源和预构建入口。
+- CI 与发布：此次文档推送后的结果未查询，本轮没有 npm 发布、标签或安装更新。
