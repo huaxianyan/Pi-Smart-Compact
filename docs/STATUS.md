@@ -53,3 +53,13 @@
 - `src/extension-api.ts` 继续随包发布：source map 的目标指向它，读者也能看到实现。只改类型入口，运行时入口 `dist/extension-api.js` 未动。
 - 验证：V2EX 侧把声明与改后的 `package.json` 放进 `node_modules/pi-smart-compact`，对 `src/` 与 `test/` 跑严格 TypeScript 检查通过（此前同一检查报 TS2307）。
 - 边界：本次未重跑 Bun 构建与定向测试，未改动 `dist/*.js`，未发布 npm。`dist/index.d.ts`（包根入口的 `types`）仍缺 —— 它的声明会带上 `.ts` 后缀的相对导入，而 `files` 不发布整个 `src`，补它需要另立一项，不在本次范围。
+
+## 2026-10-15：补齐声明树，包根类型入口可用
+
+- 本轮基线：`v2ex-recovery` 的 `18c7942`（上一轮的协议类型入口修复）。
+- 问题：包根 `types: ./dist/index.d.ts` 一直缺文件。只补 `index.d.ts` 不够 —— 它的相对导入带 `.ts` 后缀，消费方要靠 `dist/` 里同名的 `.d.ts` 做扩展名替换，所以声明必须镜像 `src/` 的目录结构整棵提交。
+- 修复：按仓库既有构建步骤生成整棵声明树（80 个 `.d.ts` + 80 个 `.d.ts.map`），与 `dist/*.js` 一样强制入库。`dist/*.js` 未重新打包，逐字节比对未变。
+- 顺带修好本机依赖映射：`node_modules/@earendil-works/*` 与 `node_modules/typebox` 三个软链原先指向已不存在的 `AppData/Roaming/npm` 旧位置，现指向托管 pi 1.2.0 的安装目录。这处不影响仓库内容，但会让 `types` 里的包解析不到。
+- 验证：消费方（Pi-V2EX-Quota）把整棵树放进 `node_modules/pi-smart-compact/dist` 后，同时导入包根默认导出与 `pi-smart-compact/extension-api` 子路径，`tsc` 在**关掉 `skipLibCheck`** 时零错误（`skipLibCheck` 会掩盖声明文件内部的解析失败，必须关掉才算验过）；再用 `@ts-expect-error` 反证默认导出是有类型的，不是退化成 `any`。
+- 边界与偏差：声明用本机 TypeScript 5.9.3 生成（fork devDependencies 声明的是 7.0.2，本机没有 Bun 工具链），命令为 `tsc -p tsconfig.json --emitDeclarationOnly --types node`。`--types node` 覆盖了 tsconfig 里的 `["node","bun"]`：`@types/bun` 本机没有，而 `src/` 不使用 `Bun.` 全局（已核对），去掉它不影响产物。未重跑 Bun 构建、定向测试与 `release:check`，未发布 npm。
+- 一处需要记住的坑：`types` 里列出的包解析不到时，tsc 报 TS2688 之后**会跳过后续语义检查**，只输出声明、不报模块解析错误 —— 那种产物看着正常但没有被真正检查过。所以生成声明前必须先确认依赖映射是活的。
