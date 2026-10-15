@@ -44,3 +44,12 @@
 - 继续维护唯一协议入口和既有摘要管线，接口补丁不初始化第二个摘要器，不用 fixture 结果证明真实摘要质量。
 - 下一步：真实长会话观察与上游升级分别立项，保持当前 fork 安装来源和预构建入口。
 - CI 与发布：此次文档推送后的结果未查询，本轮没有 npm 发布、标签或安装更新。
+
+## 2026-10-15：协议类型入口指向随包产物
+
+- 本轮基线：`v2ex-recovery` 的 `f6c10a1`。
+- 问题：`exports["./extension-api"].types` 原先指向 `src/extension-api.ts`。该文件 import 了 `./constants.ts`，而 `files` 只发布 `src/extension-api.ts` 这一个源码文件，消费方直接报 TS2307。V2EX 侧 `npm run typecheck` 因此无法通过，只能靠本地声明桩绕过。
+- 修复：按仓库既有构建步骤 `tsc -p tsconfig.json --emitDeclarationOnly` 生成声明，把 `dist/extension-api.d.ts`（含 `.d.ts.map`）与 `dist/*.js` 一样强制入库，`types` 改指该文件。产物自包含，只有一条对 `@earendil-works/pi-coding-agent` 的外部类型 import。
+- `src/extension-api.ts` 继续随包发布：source map 的目标指向它，读者也能看到实现。只改类型入口，运行时入口 `dist/extension-api.js` 未动。
+- 验证：V2EX 侧把声明与改后的 `package.json` 放进 `node_modules/pi-smart-compact`，对 `src/` 与 `test/` 跑严格 TypeScript 检查通过（此前同一检查报 TS2307）。
+- 边界：本次未重跑 Bun 构建与定向测试，未改动 `dist/*.js`，未发布 npm。`dist/index.d.ts`（包根入口的 `types`）仍缺 —— 它的声明会带上 `.ts` 后缀的相对导入，而 `files` 不发布整个 `src`，补它需要另立一项，不在本次范围。

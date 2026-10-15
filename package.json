@@ -16,7 +16,7 @@
 			"default": "./dist/index.js"
 		},
 		"./extension-api": {
-			"types": "./src/extension-api.ts",
+			"types": "./dist/extension-api.d.ts",
 			"default": "./dist/extension-api.js"
 		}
 	},
