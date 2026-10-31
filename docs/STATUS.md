@@ -63,3 +63,16 @@
 - 验证：消费方（Pi-V2EX-Quota）把整棵树放进 `node_modules/pi-smart-compact/dist` 后，同时导入包根默认导出与 `pi-smart-compact/extension-api` 子路径，`tsc` 在**关掉 `skipLibCheck`** 时零错误（`skipLibCheck` 会掩盖声明文件内部的解析失败，必须关掉才算验过）；再用 `@ts-expect-error` 反证默认导出是有类型的，不是退化成 `any`。
 - 边界与偏差：声明用本机 TypeScript 5.9.3 生成（fork devDependencies 声明的是 7.0.2，本机没有 Bun 工具链），命令为 `tsc -p tsconfig.json --emitDeclarationOnly --types node`。`--types node` 覆盖了 tsconfig 里的 `["node","bun"]`：`@types/bun` 本机没有，而 `src/` 不使用 `Bun.` 全局（已核对），去掉它不影响产物。未重跑 Bun 构建、定向测试与 `release:check`，未发布 npm。
 - 一处需要记住的坑：`types` 里列出的包解析不到时，tsc 报 TS2688 之后**会跳过后续语义检查**，只输出声明、不报模块解析错误 —— 那种产物看着正常但没有被真正检查过。所以生成声明前必须先确认依赖映射是活的。
+
+## 2026-11-01：放宽自动压缩的三处硬上限，格式偏差不再丢弃摘要
+
+- 本轮基线：`v2ex-recovery` 的 `4e4936d`。
+- 起因：拼音项目长会话（`01a1406f`，84 次压缩）里，钩子接管的 32 次压缩**全部**落到 `method: "heuristic"`，`generationFallbacks` 只有两类：`call budget reserved for final assembly` + `assembly generation failed`（22 次），`N synthesis batch budget fallback(s)` + `assembly generation failed`（8 次）。84 条摘要里 18 条 Goal 退化成「继续下一步」「开始」这类空话，全部集中在钩子那批；Pi 原生那 52 条一条没退化。
+- 三处硬上限（自动触发路径的实际约束）：
+  - `AUTO_TRIGGER_TIMEOUT_CAP_MS` 60_000 → 600_000。270k 上下文要切多个 batch，一分钟根本不够，中途 abort 会把已完成的 batch 全部丢掉。
+  - `AUTO_TRIGGER_MAX_LLM_CALLS` 4 → 12。原值低于「每 batch 一次 + 一次 assembly」，导致 batch 在尝试前就被推给确定性兜底。
+  - `MODE_POLICIES[*].maxInputTokens`：fast 100k→400k、balanced 200k→600k、thorough 300k→900k。该上限是**累计**输入（`BudgetGuard` 累加），270k 上下文在 thorough 下只剩 30k 余量。
+- 摘要接受规则：`singlePassCompact` 与 assembly 原先都以 `startsWith("##")` 为准，不满足就 throw，整轮结果作废换成确定性骨架。新增 `normalizeSummaryHeadings`：已是 `##` 开头原样返回；纯散文补一个 `## Goal` 头；`# 标题` + 后续小节则丢掉标题保留正文；空输出才报错。`verify.ts` 的 `!patched.startsWith("##")` 未动 —— 它失败时 `return summary`（原摘要），属于安全路径。
+- 验证：`node --check` 语法通过；用 6 个样例单测 `normalizeSummaryHeadings`，纯散文、H1+小节、只有 H1、多段落四类均保留正文，空输入返回空串；`pi -p` 正常加载改动后的扩展（`reply exactly: ok` → `ok`）。
+- 边界与偏差：本机无 Bun / esbuild / tsc（`node_modules` 里只有空目录），**`dist/index.js` 是手工改的**，与 `src/` 逐处对齐（`grep` 核对过两处判定点与三处常量），但没有重跑 Bun 构建、`bun test`、`release:check`。下次在有工具链的机器上应先 `bun run build` 重新生成 dist，再比对是否只剩预期差异。
+- 配套的本机配置（不在本仓库）：`~/.pi/agent/settings.json` 的 `compaction.modelOverrides` 全量补齐到 270k 触发点（zen 两个模型保持 20000 不变）；`smartCompact` 改为 `mode: thorough` + `profile: light` + `summaryModel: magpie/workbuddy-ai/deepseek-v4.1-flash`，`minContextPercent` 从 60 降到 10 —— 1M 窗口下 270k 只占 27%，保持 60 会让钩子永不启动。

@@ -13,8 +13,8 @@ var MIN_COMPACTION_SAVING_RATIO = 0.1;
 var ESTIMATOR_ROUNDING_TOLERANCE_TOKENS = 1;
 var POST_SUMMARY_RESERVE_RATIO = 0.25;
 var MAX_STATE_OPEN_LOOPS = 25;
-var AUTO_TRIGGER_TIMEOUT_CAP_MS = 60000;
-var AUTO_TRIGGER_MAX_LLM_CALLS = 4;
+var AUTO_TRIGGER_TIMEOUT_CAP_MS = 600000;
+var AUTO_TRIGGER_MAX_LLM_CALLS = 12;
 var SETTLED_TRIGGER_COOLDOWN_MS = 10 * 60000;
 var BUDGET_LIMITS = {
   CALLS: { min: 1, max: 100 },
@@ -4645,8 +4645,8 @@ function isUnresolvedSessionId(id) {
 var MODE_POLICIES = {
   fast: {
     profile: "aggressive",
-    maxLlmCalls: 3,
-    maxInputTokens: 1e5,
+    maxLlmCalls: 4,
+    maxInputTokens: 400000,
     maxOutputTokens: 20000,
     explore: false,
     allowLlmPatch: false,
@@ -4656,8 +4656,8 @@ var MODE_POLICIES = {
   },
   balanced: {
     profile: "balanced",
-    maxLlmCalls: 6,
-    maxInputTokens: 200000,
+    maxLlmCalls: 8,
+    maxInputTokens: 600000,
     maxOutputTokens: 40000,
     explore: false,
     allowLlmPatch: false,
@@ -4667,8 +4667,8 @@ var MODE_POLICIES = {
   },
   thorough: {
     profile: "light",
-    maxLlmCalls: 8,
-    maxInputTokens: 300000,
+    maxLlmCalls: 12,
+    maxInputTokens: 900000,
     maxOutputTokens: 80000,
     explore: true,
     allowLlmPatch: true,
@@ -9648,9 +9648,23 @@ Preserve extra detail about: ` + focus + `
   }, services);
   const summary = resp.content.filter((c) => c.type === "text").map((c) => c.text).join(`
 `).trim();
-  if (!summary.startsWith("##"))
-    throw new Error("Single-pass malformed output");
-  return { summary, llmCalls: 1 };
+  const normalized = normalizeSummaryHeadings(summary);
+  if (!normalized)
+    throw new Error("Single-pass returned no summary text");
+  return { summary: normalized, llmCalls: 1 };
+}
+function normalizeSummaryHeadings(raw) {
+  const text = raw.trim();
+  if (!text)
+    return "";
+  if (text.startsWith("##"))
+    return text;
+  const lines = text.split("\n");
+  const first = (lines[0] ?? "").trim();
+  const body = /^#\s+\S/.test(first) && lines.slice(1).some((line) => /^##\s/.test(line.trim())) ? lines.slice(1).join("\n").trim() : text;
+  if (body.startsWith("##"))
+    return body;
+  return SECTION_GOAL + "\n" + body;
 }
 async function summarizeBatch(batch, extraction, model, auth, signal, services, maxOutputTokens, cacheScope) {
   const range = {
@@ -10342,10 +10356,10 @@ async function summarizeConversation(rc) {
     method = "eesv";
     try {
       const r = await assembleLLM(summaries, extraction, explorationReport, rc.summaryModel, summaryAuth, pc.summaryBudgetTokens, rc.prevContext, rc.cancellation.signal, rc.services, rc.config.focusWeighting ? rc.focus : undefined, rc.previousState);
-      if (r?.startsWith("##"))
-        finalSummary = r;
-      else
-        throw new Error("Invalid summary response");
+      const accepted = normalizeSummaryHeadings(r ?? "");
+      if (!accepted)
+        throw new Error("Assembly returned no summary text");
+      finalSummary = accepted;
     } catch (err) {
       cacheable = false;
       generationFallbacks.push("assembly generation failed");

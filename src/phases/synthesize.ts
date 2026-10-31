@@ -21,6 +21,7 @@ import {
 	ASSEMBLY_PROMPT_PREFIX,
 	ASSEMBLY_PROMPT_SUFFIX,
 	SESSION_TYPE_INSTRUCTIONS,
+	SECTION_GOAL,
 	TRUNC,
 } from "../constants.ts";
 import {
@@ -527,8 +528,33 @@ export async function singlePassCompact(
 		.map((c) => c.text)
 		.join("\n")
 		.trim();
-	if (!summary.startsWith("##")) throw new Error("Single-pass malformed output");
-	return { summary, llmCalls: 1 };
+	// Accept a summary that is on-format in substance but missing the canonical
+	// heading structure. Discarding otherwise usable output costs the whole round
+	// and drops the run to the deterministic fallback, which is exactly the
+	// outcome this call exists to avoid.
+	const normalized = normalizeSummaryHeadings(summary);
+	if (!normalized) throw new Error("Single-pass returned no summary text");
+	return { summary: normalized, llmCalls: 1 };
+}
+
+/**
+ * Coerce a model response into the canonical section layout. Output that answers
+ * in prose keeps every word; only the missing headings are added around it, so a
+ * formatting quirk never costs the summary itself.
+ */
+export function normalizeSummaryHeadings(raw: string): string {
+	const text = raw.trim();
+	if (!text) return "";
+	if (text.startsWith("##")) return text;
+	const lines = text.split("\n");
+	const first = (lines[0] ?? "").trim();
+	const body =
+		/^#\s+\S/.test(first) &&
+		lines.slice(1).some((line) => /^##\s/.test(line.trim()))
+			? lines.slice(1).join("\n").trim()
+			: text;
+	if (body.startsWith("##")) return body;
+	return SECTION_GOAL + "\n" + body;
 }
 
 export async function summarizeBatch(

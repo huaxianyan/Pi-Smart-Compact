@@ -28,6 +28,7 @@ import {
 	assembleLLM,
 	assembleFallback,
 	failedChunkSummary,
+	normalizeSummaryHeadings,
 } from "../../phases/synthesize.ts";
 import { MAX_EXPLORATION_ROUNDS } from "../../constants.ts";
 import {
@@ -616,8 +617,12 @@ export async function summarizeConversation(
 				rc.config.focusWeighting ? rc.focus : undefined,
 				rc.previousState,
 			);
-			if (r?.startsWith("##")) finalSummary = r;
-			else throw new Error("Invalid summary response");
+			// Same acceptance rule as single-pass: keep the words, repair the
+			// headings. Rejecting on format alone throws away a completed round and
+			// replaces a real summary with the deterministic skeleton.
+			const accepted = normalizeSummaryHeadings(r ?? "");
+			if (!accepted) throw new Error("Assembly returned no summary text");
+			finalSummary = accepted;
 		} catch (err) {
 			cacheable = false;
 			generationFallbacks.push("assembly generation failed");

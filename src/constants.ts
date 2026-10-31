@@ -18,10 +18,19 @@ export const ESTIMATOR_ROUNDING_TOLERANCE_TOKENS = 1;
 export const POST_SUMMARY_RESERVE_RATIO = 0.25;
 /** Maximum number of open-loop records retained in durable continuity state. */
 export const MAX_STATE_OPEN_LOOPS = 25;
-/** Auto compaction must yield to native recovery instead of blocking the host indefinitely. */
-export const AUTO_TRIGGER_TIMEOUT_CAP_MS = 60_000;
-/** Provider-call ceiling for the synchronous session_before_compact hook. */
-export const AUTO_TRIGGER_MAX_LLM_CALLS = 4;
+/**
+ * Hard ceiling for an automatic run. Large windows need materially more than a
+ * minute: a 270K-token context splits into several batches, and aborting mid-run
+ * throws away every completed batch and hands the turn to native compaction.
+ * The ceiling still exists so a wedged provider cannot block the host forever.
+ */
+export const AUTO_TRIGGER_TIMEOUT_CAP_MS = 600_000;
+/**
+ * Provider-call ceiling for the synchronous session_before_compact hook. It must
+ * leave room for one call per batch plus final assembly; a ceiling below that
+ * pushes whole batches onto the deterministic fallback before they are tried.
+ */
+export const AUTO_TRIGGER_MAX_LLM_CALLS = 12;
 /** Suppress proactive settled-trigger churn after any confirmed compaction. */
 export const SETTLED_TRIGGER_COOLDOWN_MS = 10 * 60_000;
 
