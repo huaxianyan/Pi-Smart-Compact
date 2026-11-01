@@ -76,3 +76,12 @@
 - 验证：`node --check` 语法通过；用 6 个样例单测 `normalizeSummaryHeadings`，纯散文、H1+小节、只有 H1、多段落四类均保留正文，空输入返回空串；`pi -p` 正常加载改动后的扩展（`reply exactly: ok` → `ok`）。
 - 边界与偏差：本机无 Bun / esbuild / tsc（`node_modules` 里只有空目录），**`dist/index.js` 是手工改的**，与 `src/` 逐处对齐（`grep` 核对过两处判定点与三处常量），但没有重跑 Bun 构建、`bun test`、`release:check`。下次在有工具链的机器上应先 `bun run build` 重新生成 dist，再比对是否只剩预期差异。
 - 配套的本机配置（不在本仓库）：`~/.pi/agent/settings.json` 的 `compaction.modelOverrides` 全量补齐到 270k 触发点（zen 两个模型保持 20000 不变）；`smartCompact` 改为 `mode: thorough` + `profile: light` + `summaryModel: magpie/workbuddy-ai/deepseek-v4.1-flash`，`minContextPercent` 从 60 降到 10 —— 1M 窗口下 270k 只占 27%，保持 60 会让钩子永不启动。
+
+## 2026-11-01（续）：修掉「目标保留量超过实际上下文」导致的计划不可行
+
+- 现象：上一轮把触发点降到 270k 后，压缩时报 `Smart compact skipped: the safe plan cannot meet its target; using native compaction instead.`
+- 根因：`targetContextPercent` 是**窗口百分比**（fast 30 / balanced 40 / thorough 50）。1M 窗口下 50% 即 511,788，而 270k 触发时整个上下文只有 270k —— 目标保留量比全部内容还大。`planCompactionWindow` 的向后遍历以 `rawRetained + next > rawRetentionCeiling` 为终止条件，该条件永不成立，循环走到 `i = 0`，`keepFrom = 0`，判定落到 `no-eligible-prefix`，钩子放弃并交回原生压缩。
+- 复刻验证（按源码公式重算）：1M 窗口 @182k 与 @270k 均 `no-eligible-prefix`；186k 窗口 @166k 与 372k 窗口 @270k 均 `viable`。即只有「大窗口 + 提前触发」这一组合被打破，正好是本轮 270k 改动引入的。
+- 修复：`retentionCeiling` 在 `targetRetainedTokens >= totalTokens` 时退化为 `adaptiveKeepTokens`（与 force 同义）。保留比实际还多的内容没有意义，此时改用最小尾部。修复后复算：1M @182k 释放 70.2%、1M @270k 释放 79.8%、976k @270k 释放 80.9%，全部 `viable`；186k @166k（44.0%）与 372k @270k（31.1%）行为不变。
+- 附带：非 force 分支的跳过警告改为带上 `compactionPlanReasonText(plan.reason)`。原先只说「计划不可行」，无法从会话日志判断是哪条判定失败，这次排查就只能靠复刻源码重算。
+- 边界：`dist/index.js` 仍是手工修改（本机无 Bun），已 `node --check` 通过并与 `src/` 逐处对齐；未重跑 `bun build`、`bun test`。

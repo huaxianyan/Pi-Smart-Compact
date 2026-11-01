@@ -5366,7 +5366,7 @@ function planCompactionWindow(input) {
   const postSummaryReserveTokens = Math.ceil(profileCfg.summaryBudgetTokens * POST_SUMMARY_RESERVE_RATIO);
   const finalSummaryAllowance = finalSummaryAllowanceTokens ?? profileCfg.summaryBudgetTokens + postSummaryReserveTokens;
   const targetRetainedTokens = modelContextWindow ? Math.max(0, modelContextWindow * targetPercent / 100 - fixedContextTokens - finalSummaryAllowance) : adaptiveKeepTokens;
-  const retentionCeiling = force ? adaptiveKeepTokens : Math.max(adaptiveKeepTokens, targetRetainedTokens);
+  const retentionCeiling = force || targetRetainedTokens >= totalTokens ? adaptiveKeepTokens : Math.max(adaptiveKeepTokens, targetRetainedTokens);
   const rawMinimumTail = adaptiveKeepTokens / messageScale;
   const rawRetentionCeiling = retentionCeiling / messageScale;
   let rawRetained = 0;
@@ -5486,7 +5486,7 @@ function resolveCompactionWindow(rc) {
     if (rc.flags.force) {
       rc.notify("Manual compaction skipped: " + compactionPlanReasonText(plan.reason) + ".", "warning");
     } else {
-      rc.notify("Smart compact skipped: the safe plan cannot meet its target; using native compaction instead.", "warning");
+      rc.notify("Smart compact skipped (" + compactionPlanReasonText(plan.reason) + "); using native compaction instead.", "warning");
     }
     return null;
   }

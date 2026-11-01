@@ -199,9 +199,17 @@ export function planCompactionWindow(
           finalSummaryAllowance,
       )
     : adaptiveKeepTokens;
-  const retentionCeiling = force
-    ? adaptiveKeepTokens
-    : Math.max(adaptiveKeepTokens, targetRetainedTokens);
+  // A window-relative target only makes sense when the trigger sits near the
+  // window. Compacting a large window early — a 270K context on a 1M model —
+  // makes the target (half the window) exceed everything that is loaded, so the
+  // backward walk below never breaks, keepFrom lands on 0, and the run reports
+  // "no eligible prefix" and hands the turn to native compaction. Keeping more
+  // than exists is meaningless, so that case degrades to the minimum tail, the
+  // same retention a forced run uses.
+  const retentionCeiling =
+    force || targetRetainedTokens >= totalTokens
+      ? adaptiveKeepTokens
+      : Math.max(adaptiveKeepTokens, targetRetainedTokens);
   const rawMinimumTail = adaptiveKeepTokens / messageScale;
   const rawRetentionCeiling = retentionCeiling / messageScale;
 
@@ -388,8 +396,12 @@ export function resolveCompactionWindow(rc: PreparedRc): WindowedRc | null {
         "warning",
       );
     } else {
+      // Name the failed check: without it the only signal is that the plan was
+      // rejected, which is impossible to act on from a session log.
       rc.notify(
-        "Smart compact skipped: the safe plan cannot meet its target; using native compaction instead.",
+        "Smart compact skipped (" +
+          compactionPlanReasonText(plan.reason) +
+          "); using native compaction instead.",
         "warning",
       );
     }
