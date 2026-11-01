@@ -107,3 +107,16 @@
 - 测试：`bun test` → 772 个测试 / 83 个文件，**60 个失败**。在 `4e4936d` 建临时 worktree 跑同一套做基线，失败集合**逐条一致**：无新增、无修掉。失败均为环境性（Windows `umask 000`、git root 过期、sqlite FTS、lease 目录不可创建），不是代码缺陷。临时 worktree 与备份已删除。
 - 测试抓到一个真实回归：把 `AUTO_TRIGGER_MAX_LLM_CALLS` 提到 12 会抹掉「自动运行的调用数低于手动默认值」这条设计约束（12 ≥ 全部模式默认），该常量从此永不生效。改为 **8**：仍容纳 2–3 个 batch + assembly + 一次补丁，且仍把 thorough 从 12 压到 8。`test/mode-policy.test.ts` 的断言按新策略更新。
 - 对下一步的意义：构建链路已通，10.7.3 合并的两个阻塞去掉一个（另一个是 extension-api 协议需在 10.x 钩子上重新实现）。
+
+## 2026-11-01（升级）：fork 升到上游 v10.7.3
+
+- 范围：上游 9.7.1 → v10.7.3，52 个提交、274 个文件（+59,484 / −14,806）。合并结果 383 个文件变更。
+- 工具链前置：本机装了 Bun 1.4.4（与上游 CI 同版本），并 `bun install` 装上上游钉住的 141 个开发依赖，声明生成与类型检查才真正可用。此前 `node_modules` 里只有空目录，`tsc` 报 TS2688 后跳过语义检查——那种「声明看着正常但没被检查过」的产物不再出现。
+- 冲突处理原则：上游已修同类问题就用上游。据此**撤销**了本轮早些时候的四个临时补丁中的三个：
+  - `isSummaryAcceptable` 校验放宽整个删除。上游 10.1.2（兜底摘要不再无法通过自己的校验）、10.1.3（post-state 闸门不再拒绝已通过 post-synthesis 的摘要）已从根上修掉，并各有回归测试；`test/state-step-continuity.test.ts` 明确要求真正矛盾必须被拒绝，我们的放宽会削弱它。
+  - `AUTO_TRIGGER_TIMEOUT_CAP_MS` 用上游 300s（比最初的 60s 已提升 5 倍）。
+  - `AUTO_TRIGGER_MAX_LLM_CALLS` 用上游 4，`MODE_POLICIES` 的调用数与输入预算一并回归上游。上游有意让自动运行低于手动默认值，三处 pipeline 测试守住该约束；批量饥饿的根因已由 profile 的 chunk 尺寸与 single-pass 路径解决，不需要更多调用数。
+- 保留的 fork 改动：extension-api 协议与 `index.ts` 的 `nativeApplyRuns` 守卫（适配 10.x 重构后的钩子）、`normalizeSummaryHeadings`（上游 single-pass/assembly 仍以 `startsWith("##")` 为准）、`window.ts` 的 `retentionCeiling` 修复（目标保留量超过实际上下文时退化为最小尾部）、`package.json` 同时导出 `./extension-api` 与上游新增的 `./rtk`。
+- 适配 10.x 的两处必要修正：`SessionRunLock.isRunning` → `isSessionActive`；`registerExtensionApi` 在宿主没有 `events` 总线时跳过注册（与上游 `hindsight-tracking.ts`、`compaction-delivery.ts` 同样的 `typeof` 判断），否则整个扩展会在缺少该能力的宿主上构造失败——这一条不修会让 30 多个上游测试整片失败。
+- 验证：`bun run typecheck` 0 错误；`bun test` 2061 个测试，失败集合与纯净 v10.7.3 逐条对齐，唯一差异是 Windows 文件锁导致的偶发 `EBUSY`（单跑 3/3 通过，上游同样偶发）；`bun run build` 完整通过，产物 4 个 bundle（index 1.14 MB / extension-api 15.69 KB / rtk 27 KB / mnemopi-worker 7.39 KB）+ 129 个声明文件。
+- 与 9.7.1 的差异提醒：10.x 新增 Hindsight、Mnemopi、rtk、Home 界面等子系统，`/smart-compact` 的交互与设置项有变化；本机 `settings.json` 的 `smartCompact` 配置继续沿用，但 `singlePassMaxTokens` 已下调到 300000 —— 上游 thorough 的输入预算是 300k，原来的 450000 会让 single-pass 阈值（×0.9 = 405k）超过输入预算而触发 BudgetExceeded。
