@@ -366,7 +366,35 @@ export function isTransientToolDiagnostic(text: string): boolean {
       /(?:audit|existing lockfile|loadVirtual)/i.test(candidate)) ||
     /^Found \d+ occurrences? of edits\[\d+\](?!\w)/i.test(candidate) ||
     (/^Unknown JSON field:/i.test(candidate) &&
-      /Available fields:/i.test(candidate))
+      /Available fields:/i.test(candidate)) ||
+    // This extension's own failure output is not session work to carry.
+    OWN_OUTPUT_CONTEXT_RE.test(candidate)
+  );
+}
+
+/**
+ * A retry's result resolves the original error only under the same failure
+ * classification that flagged it: not m.isError, and for command-executing
+ * tools no failure signal in the result text either — a retry that returns
+ * "isError: false" with `Command exited with code 1` in the body is still a
+ * failure, not a resolution. Shared by fresh extraction and the cached-delta
+ * reconciliation so both paths classify identically.
+ */
+export function resolvesErrorResult(
+  result: LlmMessage | undefined,
+  retry: FlatToolCall,
+  tcIdx: ToolCallIndex,
+): boolean {
+  if (!result || result.role !== "toolResult" || result.isError) return false;
+  const resultCall = tcIdx.get(result.toolCallId ?? "");
+  const matches =
+    retry.id == null
+      ? Boolean(resultCall && sameToolOperation(retry, resultCall))
+      : result.toolCallId === retry.id;
+  if (!matches) return false;
+  return !(
+    classifyToolOperation(retry.arguments, retry.name) === "execute" &&
+    hasCommandFailureSignal(extractText(result.content))
   );
 }
 
@@ -432,36 +460,76 @@ export function catalogErrors(
       const blocks: unknown[] = Array.isArray(msgs[j]?.content)
         ? (msgs[j].content as unknown[])
         : [];
-      const retryTool = blocks
+      // Every same-operation retry in this message counts; a later retry
+      // after a failed one must not be invisible to earlier errors (the
+      // search used to stop at the first retry attempt).
+      const retryTools = blocks
         .flatMap((block) => flattenToolCallBlock(block))
-        .find((candidate) => sameToolOperation(failedCall, candidate));
-      if (!retryTool) continue;
+        .filter((candidate) => sameToolOperation(failedCall, candidate));
+      if (!retryTools.length) continue;
       err.retryAttempted = true;
-      for (
-        let k = j + 1;
-        k < Math.min(msgs.length, j + ERROR_RESOLVE_WINDOW);
-        k++
-      ) {
-        const result = msgs[k];
-        if (result?.role !== "toolResult" || result.isError) continue;
-        const resolved =
-          retryTool.id == null
-            ? (() => {
-                const resultCall = tcIdx.get(result.toolCallId ?? "");
-                return Boolean(
-                  resultCall && sameToolOperation(retryTool, resultCall),
-                );
-              })()
-            : result.toolCallId === retryTool.id;
-        if (resolved) {
-          err.resolved = true;
-          break;
+      for (const retryTool of retryTools) {
+        for (
+          let k = j + 1;
+          k < Math.min(msgs.length, j + ERROR_RESOLVE_WINDOW);
+          k++
+        ) {
+          if (resolvesErrorResult(msgs[k], retryTool, tcIdx)) {
+            err.resolved = true;
+            break;
+          }
         }
+        if (err.resolved) break;
       }
-      break;
+      if (err.resolved) break;
     }
   }
   return errors;
+}
+
+/**
+ * Same-question decision entries collapse to their latest non-empty
+ * answer: input is chronological, the first occurrence keeps its position,
+ * and later answers replace earlier ones. Shared by fallback rendering,
+ * state merging, and verification so one active decision carries exactly one
+ * answer everywhere; a first-wins dedup alone would freeze the OLDEST answer
+ * of a re-asked question into the carried state.
+ */
+export function collapseDecisionsByQuestion<
+ T extends { summary: string; userResponse?: string },
+>(items: readonly T[]): T[] {
+ const order: string[] = [];
+ const byQuestion = new Map<string, T>();
+ for (const item of items) {
+  const key = normalizeFactKey(item.summary);
+  if (!key) continue;
+  const existing = byQuestion.get(key);
+  if (!existing) {
+   order.push(key);
+   byQuestion.set(key, item);
+   continue;
+  }
+  // Whitespace-only responses are absent, not new answers. A real answer
+  // replaces the whole record so the latest ANSWERED entry's provenance
+  // (type, index) survives, while the first occurrence keeps its position.
+  if (item.userResponse && item.userResponse.trim()) {
+   byQuestion.set(key, item);
+  }
+ }
+ return order.map((key) => byQuestion.get(key)!);
+}
+
+/**
+ * Text injected by the harness as a `user` message after `convertToLlm`:
+ * process/memory status events, this extension's own continuity bridge/ledger, and
+ * agent-mesh envelopes. None of it is human-authored, so it must never be
+ * mined as goal, constraint, decision, or recent user request.
+ */
+const HARNESS_INJECTED_RE =
+  /^(?:<(?:process_event|memory_status)\b|Native compaction continuity bridge\b|## Continuity Ledger\b|\[agent-mesh\]|(?:\*\*)?agent-mesh (?:message|reply)\b)/;
+
+export function isHarnessInjectedText(text: string): boolean {
+  return HARNESS_INJECTED_RE.test(text.trim());
 }
 
 export function extractDecisions(
@@ -479,11 +547,11 @@ export function extractDecisions(
         ? args
         : ((args?.question ?? args?.prompt ?? "") as string);
     if (!question) continue;
-    for (
-      let i = tc.msgIndex + 1;
-      i < Math.min(msgs.length, tc.msgIndex + 4);
-      i++
-    ) {
+    // Bind the dialog answer by tool-call id: parallel calls in the same
+    // assistant message (or any later traffic) must not detach the answer
+    // from its question. The result always follows its call, so scan forward
+    // to the end of the window instead of a positional message-count limit.
+    for (let i = tc.msgIndex + 1; i < msgs.length; i++) {
       if (msgs[i]?.role === "toolResult" && msgs[i]?.toolCallId === id) {
         decisions.push({
           index: tc.msgIndex,
@@ -502,6 +570,7 @@ export function extractDecisions(
   for (let i = 0; i < msgs.length; i++) {
     if (msgs[i]?.role !== "user") continue;
     const txt = extractText(msgs[i].content);
+    if (isHarnessInjectedText(txt)) continue;
     if (CHOICE_RE.test(txt)) {
       decisions.push({
         index: i,
@@ -562,16 +631,22 @@ export function isDiagnosticConstraintText(text: string): boolean {
 }
 
 /**
- * This extension's own gate/notify prose. Operators paste a failed run's error
- * back into the session to ask about it; without this the next run mines
- * "do not bypass verification" as a prohibition and checks the summary against
- * it — each retry adding evidence that makes the next retry fail harder.
- */
-const OWN_OUTPUT_RE =
-  /(?:verification stopped apply|yield check stopped apply|smart compact failed|do not bypass verification|conversation unchanged|review \/smart-compact metrics|restart pi with debug=smart-compact)/i;
+  * This extension's own gate/notify prose. Operators paste a failed run's error
+  * back into the session to ask about it; without this the next run mines
+  * "do not bypass verification" as a prohibition and checks the summary against
+  * it — each retry adding evidence that makes the next retry fail harder.
+  * Split into unambiguous context markers and phrases a genuine user rule can
+  * legitimately share: the ambiguous phrase alone is NOT own output.
+  */
+const OWN_OUTPUT_CONTEXT_RE =
+  /(?:verification stopped apply|yield check stopped apply|smart compact failed|conversation unchanged|review \/smart-compact metrics|restart pi with debug=smart-compact|smart compact: )/i;
+const OWN_OUTPUT_PHRASE_RE = /do not bypass verification/i;
 
 /** `[x] Did the thing` is a completion record, not a live rule. `[ ]` stays. */
 const COMPLETED_CHECKLIST_RE = /^\[[xX✓✔]\]\s*\S/;
+
+/** The floor's own "Topics Covered" line (`**topic** [priority]: ...`) quotes raw segment text, not rules. */
+const FLOOR_TOPIC_LINE_RE = /^\*\*.+?\*\* \[(?:critical|high|normal|low)\]: /;
 
 /**
  * Text that must never become a constraint: tool noise, this extension's own
@@ -584,10 +659,15 @@ export function isNonLiveConstraintText(text: string): boolean {
   return (
     isDiagnosticConstraintText(candidate) ||
     isCompactionStatusText(candidate) ||
-    OWN_OUTPUT_RE.test(candidate) ||
-    COMPLETED_CHECKLIST_RE.test(candidate)
+    OWN_OUTPUT_CONTEXT_RE.test(candidate) ||
+    COMPLETED_CHECKLIST_RE.test(candidate) ||
+    FLOOR_TOPIC_LINE_RE.test(candidate)
   );
 }
+
+/** Ledger labels quoted back by a host summary; repeated passes stack them. */
+const CONTINUITY_LABEL_RE =
+  /^(?:(?:Constraint|Goal|Decision|Critical|Open loop|Unresolved error|Resolved error):\s*)+/i;
 
 export function mineConstraints(
   msgs: LlmMessage[],
@@ -598,12 +678,28 @@ export function mineConstraints(
     if (msgs[i]?.role !== "user") continue;
     const text = extractText(msgs[i].content);
     if (text.length < 10 || text.startsWith("/")) continue;
+    if (isHarnessInjectedText(text)) continue;
+    // Whole-message provenance: a pasted copy of this extension's warning can
+    // wrap across lines, isolating an ambiguous shared phrase on its own line.
+    // An unambiguous own-output marker anywhere in the message marks those
+    // phrase lines as ours too; a standalone user rule has no markers and
+    // stays live.
+    const ownOutputMessage = OWN_OUTPUT_CONTEXT_RE.test(text);
     // A prior compaction is represented as one multiline user message. Match
     // individual bullets/lines so an npm error later in that recap cannot turn
     // the entire recap (including notices) into one bogus constraint.
-    for (const raw of text.split(/\n+/)) {
-      const candidate = raw.replace(/^\s*[-*]\s+/, "").trim();
+    // A host compaction summary contributes only its Constraints section, as it
+    // contributes only its Goal to extractMainGoal: other sections are history.
+    const source = HISTORY_SUMMARY_RE.test(text)
+      ? (findSection(text, "constraints")?.body ?? "")
+      : text;
+    for (const raw of source.split(/\n+/)) {
+      const candidate = raw
+        .replace(/^\s*[-*]\s+/, "")
+        .trim()
+        .replace(CONTINUITY_LABEL_RE, "");
       if (candidate.length < 10 || isNonLiveConstraintText(candidate)) continue;
+      if (ownOutputMessage && OWN_OUTPUT_PHRASE_RE.test(candidate)) continue;
       for (const { re, cat, conf } of CONSTRAINT_PATTERNS) {
         if (!re.test(candidate)) continue;
         const normalized = candidate.toLowerCase().replace(/\s+/g, " ");
@@ -668,7 +764,10 @@ export function segmentTopicsHeuristic(
     const fileShift = Boolean(
       lastFile && nextBasename && nextBasename !== lastFile,
     );
-    const userShift = message.role === "user" && SHIFT_RE.test(text);
+    const userShift =
+      message.role === "user" &&
+      !isHarnessInjectedText(text) &&
+      SHIFT_RE.test(text);
     const sizeShift =
       tokenAcc > 0 && tokenAcc + messageTokens > pc.maxChunkTokens;
     const breakBefore =
@@ -749,7 +848,7 @@ function buildTimeline(
     const m = msgs[i];
     if (m.role === "user") {
       const txt = extractText(m.content);
-      if (!txt.startsWith("/"))
+      if (!txt.startsWith("/") && !isHarnessInjectedText(txt))
         timeline.push({
           index: i,
           event: "user_request",
@@ -802,7 +901,7 @@ export function extractMainGoal(msgs: LlmMessage[]): string | null {
     const m = msgs[i];
     if (m?.role !== "user") continue;
     const text = extractText(m.content).trim();
-    if (!text) continue;
+    if (!text || isHarnessInjectedText(text)) continue;
     if (HISTORY_SUMMARY_RE.test(text)) {
       const carried = summaryEvidenceLine(
         findSection(text, "goal")?.body ?? "",
@@ -907,7 +1006,8 @@ export function extractOpenLoops(
     const msg = msgs[idx];
     if (msg.role !== "user") continue;
     const txt = extractText(msg.content);
-    if (txt.length < 10 || txt.startsWith("/")) continue;
+    if (txt.length < 10 || txt.startsWith("/") || isHarnessInjectedText(txt))
+      continue;
     if (FOLLOWUP_RE.test(txt)) {
       // Avoid duplicates with errors
       const isDup = loops.some((l) => isNearbyDuplicate(l, txt, idx));
@@ -936,7 +1036,8 @@ export function extractOpenLoops(
     const msg = msgs[idx];
     if (msg.role !== "user") continue;
     const txt = extractText(msg.content);
-    if (txt.length < 10 || txt.startsWith("/")) continue;
+    if (txt.length < 10 || txt.startsWith("/") || isHarnessInjectedText(txt))
+      continue;
     if (BLOCKED_RE.test(txt)) {
       const isDup = loops.some((l) => isNearbyDuplicate(l, txt, idx));
       if (!isDup) {
@@ -1057,7 +1158,10 @@ export function extractStructured(
   );
   const mainGoal = extractMainGoal(msgs);
   const lastUserMessages = msgs
-    .filter((m) => m.role === "user")
+    .filter(
+      (m) =>
+        m.role === "user" && !isHarnessInjectedText(extractText(m.content)),
+    )
     .slice(-5)
     .map((m) => extractText(m.content));
   const lastErrors = errors.slice(-3).map((e) => e.message);

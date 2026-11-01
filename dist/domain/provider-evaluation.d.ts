@@ -9,12 +9,19 @@ export interface ProviderEvaluationCell {
     calls: number;
     successRate: number;
     avgLatencyMs: number;
+    /** Quota-inclusive: input + cacheRead + cacheWrite + output per call. */
     avgTokensPerCall: number;
+    avgCacheReadTokensPerCall: number;
+    avgCacheWriteTokensPerCall: number;
     avgQuality: number | null;
     qualityCoverage: number;
     score: number;
     confidence: number;
     eligible: boolean;
+    /** Present when any contributing run used estimated usage. */
+    usageBasis?: "reported" | "estimated";
+    /** Subscription (OAuth) rows must never be priced at API rates. */
+    billing?: "api" | "subscription";
 }
 export interface ProviderRouteRecommendation {
     stage: ProviderRouteStage;

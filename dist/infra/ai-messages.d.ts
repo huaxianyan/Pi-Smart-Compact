@@ -18,7 +18,7 @@
 import { type Message } from "@earendil-works/pi-ai";
 import type { LlmMessage, SessionMessageEntry } from "../types.ts";
 import type { SecretScrubber } from "../domain/scrub.ts";
-/** Preserve the host's context projection and original entry IDs, including custom and branch summaries. */
+/** Project a full selected branch, preserving source IDs and intentional edits. */
 export declare function contextMessageEntries(entries: readonly unknown[]): SessionMessageEntry[];
 /** Text transcript without the host summarizer's implicit 2,000-character tool-result cap. */
 export declare function serializeConversationText(messages: LlmMessage[]): string;

@@ -1,5 +1,6 @@
 import type { CompactMetricsEntry } from "../types.ts";
-export declare const DASHBOARD_PAGE_SIZE = 24;
+/** Dashboard lines per page: fits the 85%-high overlay minus its 6 chrome lines; 24 without a known height. */
+export declare function dashboardPageSize(rows?: number | undefined): number;
 export declare function metricDuration(entry: CompactMetricsEntry): number;
 export declare function metricMs(ms: number): string;
 export declare function metricPct(value: number | undefined): string;

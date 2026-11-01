@@ -22,14 +22,15 @@ describe("semantic compact progress", () => {
   it("renders completed/current/future phases and marks optional Explore skipped", () => {
     const { ctx, calls, widget } = context();
     showProgressOverlay(ctx, { phase: 3, phaseName: "Synthesize", detail: "Compressing older history · batch 2/4" });
-    expect(calls).toEqual(["status:Smart Compact 3/5 · Synthesize", "widget:set"]);
+    // Progress is a transient below-editor widget, never a footer status.
+    expect(calls).toEqual(["widget:set"]);
     const component = widget()!({}, { fg: (_color: string, text: string) => text, bold: (text: string) => text });
     expect(component.render(120)).toEqual([
       "✓ Extract  – Explore  ● Synthesize  ○ Verify  ○ Apply",
       "↳ Compressing older history · batch 2/4 · conversation unchanged",
     ]);
     clearCompactProgress(ctx);
-    expect(calls.slice(-2)).toEqual(["status:undefined", "widget:clear"]);
+    expect(calls.slice(-1)).toEqual(["widget:clear"]);
     expect(calls.some(call => call.startsWith("notify:"))).toBeFalse();
   });
 
@@ -48,11 +49,14 @@ describe("semantic compact progress", () => {
     notifyAppliedCompaction(ctx, {
       tokensBefore: 1_000, tokensSaved: 400, plannedAfterTokens: 550, estimatedAfterTokens: 600, estimatedYield: 0.4,
       qualityScore: 100,
+      generationFallbacks: ["1 synthesis batch fallback"],
       provenance: { initialScore: 11, deterministicPatched: [{ kind: "missing-goal", goal: "ship" }], llmPatched: false, qualityFloorUsed: true, finalScore: 100, remainingGaps: [] },
     } as any, false);
     expect(calls.at(-1)).toContain("1,000t → planned ~550t / ~600t applied estimate");
     expect(calls.at(-1)).toContain("verified 100/100 coverage (source 11/100, safety fallback)");
     expect(calls.at(-1)).toContain("0 remaining gaps");
+    expect(calls.at(-1)).toContain("fallback: 1 synthesis batch fallback");
+    expect(calls.filter(call => call.startsWith("notify:"))).toHaveLength(1);
     expect(calls.at(-1)).not.toContain("actual");
   });
 

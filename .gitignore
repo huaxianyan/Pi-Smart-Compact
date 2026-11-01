@@ -6,7 +6,6 @@ dist/
 *.v*-backup
 
 # Dependencies
-node_modules
 node_modules/
 
 # Lockfile — this project uses bun (see bun.lock). Ignore npm's lockfile
@@ -15,7 +14,8 @@ package-lock.json
 
 # Environment
 .env
-.env.local
+.env.*
+!.env.example
 
 # Coverage
 coverage/
@@ -28,6 +28,12 @@ coverage/
 
 # OS
 .DS_Store
+
+# Local evaluator output, research reports and review findings
+task-eval-reports/
+replay-eval-reports/
+/docs/reports/
+/docs/findings/
 
 # Scratch / progress files used by sub-agents and chains
 .pi/

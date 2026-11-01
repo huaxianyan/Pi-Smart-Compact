@@ -1,11 +1,11 @@
 /** Proactive auto-compaction request that delegates all EESV work to Pi's host lifecycle. */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { CompactOptions, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CompactConfig } from "../types.ts";
-import { MIN_TOKEN_THRESHOLD, SETTLED_TRIGGER_COOLDOWN_MS } from "../constants.ts";
+import { AUTO_TRIGGER_TIMEOUT_CAP_MS, SETTLED_TRIGGER_COOLDOWN_MS } from "../constants.ts";
 import { isUnresolvedSessionId, resolveSessionId } from "../infra/session-identity.ts";
-import { safeContextPercent } from "../utils/tokens.ts";
-import * as log from "../utils/logger.ts";
+import { contextPressure } from "./background-preparation.ts";
+import { errorDetail, reportIssue } from "../utils/issues.ts";
 
 export interface SettledAutoTrigger {
   request(ctx: ExtensionContext, config: CompactConfig): Promise<void>;
@@ -14,8 +14,12 @@ export interface SettledAutoTrigger {
 }
 
 export interface SettledAutoTriggerOptions {
+  /** A guarded request may return an idle-checked delivery recovery action for its watchdog. */
+  compact?: (ctx: ExtensionContext, options: CompactOptions) => (() => void) | void;
   now?: () => number;
   cooldownMs?: number;
+  /** Test seam; defaults to the hook budget cap plus the configured run limit. */
+  watchdogMs?: number;
 }
 
 /**
@@ -30,58 +34,90 @@ export function createSettledAutoTrigger(
   const now = options.now ?? Date.now;
   const cooldownMs = Math.max(0, options.cooldownMs ?? SETTLED_TRIGGER_COOLDOWN_MS);
   const active = new Map<string, symbol>();
-  const lastCompactionAt = new Map<string, number>();
+  const cooldownStartedAt = new Map<string, number>();
 
   const noteCompaction = (sessionId: string): void => {
-    if (!isUnresolvedSessionId(sessionId)) lastCompactionAt.set(sessionId, now());
+    if (!isUnresolvedSessionId(sessionId)) cooldownStartedAt.set(sessionId, now());
   };
 
   const clear = (sessionId: string): void => {
     active.delete(sessionId);
-    lastCompactionAt.delete(sessionId);
+    cooldownStartedAt.delete(sessionId);
   };
 
   const request = async (ctx: ExtensionContext, config: CompactConfig): Promise<void> => {
-    if (!config.autoTrigger || config.autoTriggerStrategy !== "settled") return;
+    if (!config.autoTrigger || !["settled", "background"].includes(config.autoTriggerStrategy)) return;
 
     const sessionId = resolveSessionId(ctx);
     if (isUnresolvedSessionId(sessionId) || active.has(sessionId)) return;
 
-    const usage = ctx.getContextUsage();
-    const totalTokens = usage?.tokens;
-    if (typeof totalTokens !== "number" || !Number.isFinite(totalTokens)
-      || totalTokens < MIN_TOKEN_THRESHOLD || !ctx.model) return;
+    if (!contextPressure(ctx, config).compaction) return;
 
-    const contextPercent = safeContextPercent(totalTokens, ctx.model.contextWindow);
-    if (contextPercent < config.minContextPercent) return;
-
-    const lastCompaction = lastCompactionAt.get(sessionId);
-    if (lastCompaction !== undefined && now() - lastCompaction < cooldownMs) return;
+    const cooldownStart = cooldownStartedAt.get(sessionId);
+    if (cooldownStart !== undefined && now() - cooldownStart < cooldownMs) return;
     if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
 
     const requestToken = Symbol(sessionId);
     active.set(sessionId, requestToken);
     await new Promise<void>(resolve => {
       let finished = false;
+      let recoverDelivery: (() => void) | void;
+      // Pi normally always answers; a host that never calls back must not pin
+      // this session's request slot forever. The budget covers our hook (capped)
+      // plus Pi's own summary after a fallback.
+      const watchdogMs = options.watchdogMs ?? AUTO_TRIGGER_TIMEOUT_CAP_MS + config.autoTriggerTimeoutMs;
+      const watchdog = setTimeout(() => {
+        if (active.get(sessionId) !== requestToken) { finish(); return; }
+        // The callback can legitimately arrive after the watchdog (Pi may
+        // still be busy) and the summary can still be applied late. Report
+        // the pending state accurately; manual retry is suggested only when
+        // the host is actually idle, never while it is still working.
+        const hostBusy =
+          typeof ctx.isIdle === "function" ? !ctx.isIdle() : false;
+        reportIssue({
+          key: "auto.settled-no-callback",
+          message: hostBusy
+            ? "Pi is still busy after " +
+              Math.round(watchdogMs / 1000) +
+              "s; the automatic compaction result may still arrive and be applied late. No action needed; automatic retries wait for the cooldown."
+            : "Pi did not report the automatic compaction result within " +
+              Math.round(watchdogMs / 1000) +
+              "s. Automatic retries wait for the cooldown. Run /smart-compact manually if needed.",
+        }, ctx);
+        recoverDelivery?.();
+        finish();
+      }, watchdogMs);
+      watchdog.unref?.();
       const finish = (): void => {
         if (finished) return;
         finished = true;
-        if (active.get(sessionId) === requestToken) active.delete(sessionId);
+        clearTimeout(watchdog);
+        if (active.get(sessionId) === requestToken) {
+          active.delete(sessionId);
+          // Failed or timed-out work may already have spent provider tokens.
+          cooldownStartedAt.set(sessionId, now());
+        }
         resolve();
       };
       try {
-        ctx.compact({
-          onComplete: () => {
-            if (active.get(sessionId) === requestToken) noteCompaction(sessionId);
-            finish();
-          },
+        const callbacks: CompactOptions = {
+          onComplete: finish,
           onError: error => {
-            log.debugError("Settled smart compact request failed", error);
+            reportIssue({
+              key: "auto.settled-apply",
+              message: "Pi could not run the automatic compaction (" + errorDetail(error) + "). Conversation unchanged. Run /smart-compact manually if context is high.",
+              error,
+            }, ctx);
             finish();
           },
-        });
+        };
+        recoverDelivery = options.compact ? options.compact(ctx, callbacks) : ctx.compact(callbacks);
       } catch (error) {
-        log.debugError("Settled smart compact request failed", error);
+        reportIssue({
+          key: "auto.settled-apply",
+          message: "Pi could not run the automatic compaction (" + errorDetail(error) + "). Conversation unchanged. Run /smart-compact manually if context is high.",
+          error,
+        }, ctx);
         finish();
       }
     });

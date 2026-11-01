@@ -1,5 +1,10 @@
 # Migrating from v7 to v8
 
+> **Scope:** Historical migration note for upgrading from v7 to v8 (8.0.8). Versions, host baselines and settings reflect that release, not the current package; current behavior is in the guide and configuration reference.
+> Current documentation for Smart Compact (`pi-smart-compact`):
+> [guide](./guide.md) · [configuration](./configuration.md) ·
+> [evaluation](./evaluation.md) · [documentation index](./README.md).
+
 This guide applies to the stable `8.0.8` release.
 
 ## Compatibility
@@ -96,7 +101,8 @@ All defaults preserve the selected model and require no migration edits.
 | `summaryModel` | `null` | Explicit Synthesis route; selected model when null |
 | `verificationModel` | `null` | Explicit repair route; summary/selected model when null |
 
-See the README configuration table for budgets and monitoring options.
+For current budgets and monitoring options, see the [configuration
+reference](./configuration.md); the defaults above describe v8.
 
 ## Backups and rollout
 

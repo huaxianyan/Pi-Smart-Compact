@@ -1,14 +1,26 @@
 // @bun
 // src/constants.ts
-var VERSION = "9.7.1";
+var VERSION = "10.7.3";
+var OPTIONAL_COMPONENTS = {
+  mnemopi: { name: "@oh-my-pi/pi-mnemopi", version: "18.12.6", enables: "Mnemopi memory store" },
+  bun: { name: "bun", version: "1.4.4", enables: "Mnemopi worker runtime when no Bun 1.3.14+ is on PATH" },
+  resvg: { name: "@resvg/resvg-js", version: "2.6.2", enables: "image snapshots" }
+};
 var CHARS_PER_TOKEN = 3.8;
 var MIN_COMPACTION_SAVING_RATIO = 0.1;
 var ESTIMATOR_ROUNDING_TOLERANCE_TOKENS = 1;
+var YIELD_TARGET_TOLERANCE_RATIO = 0.05;
 var POST_SUMMARY_RESERVE_RATIO = 0.25;
 var MAX_STATE_OPEN_LOOPS = 25;
-var AUTO_TRIGGER_TIMEOUT_CAP_MS = 600000;
-var AUTO_TRIGGER_MAX_LLM_CALLS = 8;
+var AUTO_TRIGGER_TIMEOUT_CAP_MS = 300000;
+var AUTO_TRIGGER_MAX_LLM_CALLS = 4;
 var SETTLED_TRIGGER_COOLDOWN_MS = 10 * 60000;
+var REBUILD_MIN_TOKENS = 16384;
+var CACHE_INACTIVE_ROUTE_MIN_REQUESTS = 3;
+var CACHE_INACTIVE_ROUTE_MIN_PROMPT_TOKENS = 4096;
+var LONG_CONTEXT_PRICING_THRESHOLD_TOKENS = 200000;
+var AUTO_TRIM_BREAK_EVEN_REQUESTS = 24;
+var CACHE_WARMING_MIN_SAVINGS_USD = 0.05;
 var BUDGET_LIMITS = {
   CALLS: { min: 1, max: 100 },
   INPUT_TOKENS: { min: 1e4, max: 1e6 },
@@ -49,11 +61,14 @@ var PROFILE_NUMERIC_BOUNDS = {
   singlePassMaxTokens: [1000, 500000],
   batchMaxTokens: [1000, 500000]
 };
+var LARGE_CONTEXT_WINDOW_TOKENS = 400000;
 var CONFIG_NUMERIC_LIMITS = {
   minContextPercent: { min: 0, max: 100, integer: false },
+  prepareContextPercent: { min: 0, max: 100, integer: false },
   autoTriggerTimeoutMs: { min: 1000, max: 300000, integer: true },
   maxLlmCalls: { min: 0, max: 100, integer: true },
   maxLlmInputTokens: { min: 0, max: 1e6, integer: true },
+  maxContextTokens: { min: 16384, max: 2000000, integer: true, zeroOrRange: true },
   codexMaxCallMs: {
     min: 5000,
     max: 3600000,
@@ -66,7 +81,12 @@ var CONFIG_NUMERIC_LIMITS = {
     integer: true,
     zeroOrRange: true
   },
-  pendingTtlMs: { min: 1000, max: 3600000, integer: true }
+  pendingTtlMs: { min: 1000, max: 3600000, integer: true },
+  pendingFingerprintTtlMs: { min: 60000, max: 3600000, integer: true, zeroOrRange: true },
+  hindsightTimeoutMs: { min: 1000, max: 60000, integer: true },
+  hindsightRecallMaxTokens: { min: 128, max: 4096, integer: true },
+  autoTrimBreakEvenRequests: { min: 1, max: 1000, integer: true },
+  autoTrimMinSavingChars: { min: 0, max: 1e7, integer: true }
 };
 var DEFAULT_CONFIG = {
   mode: "auto",
@@ -78,13 +98,16 @@ var DEFAULT_CONFIG = {
   summaryThinkingLevel: "minimal",
   segmentationThinkingLevel: "minimal",
   agentToolAccess: "inherit",
+  toolLoading: "eager",
   autoTrigger: true,
   showStatus: true,
-  autoTriggerStrategy: "native-hook",
-  autoTriggerTimeoutMs: 120000,
+  autoTriggerStrategy: "settled",
+  autoTriggerTimeoutMs: 300000,
   backupEnabled: true,
   backupDir: "",
-  minContextPercent: 60,
+  minContextPercent: 80,
+  prepareContextPercent: null,
+  maxContextTokens: 0,
   requireApproval: true,
   scrubSecrets: true,
   scrubPii: false,
@@ -93,9 +116,32 @@ var DEFAULT_CONFIG = {
   codexMaxCallMs: 0,
   maxLatencyMs: 0,
   pendingTtlMs: 300000,
+  pendingFingerprintTtlMs: 0,
   focusWeighting: true,
   zeroCallEnabled: true,
   contextGraphEnabled: true,
+  compactionEngines: ["eesv"],
+  memoryBackend: "local",
+  hindsightBaseUrl: null,
+  hindsightBankId: null,
+  hindsightApiKeyEnv: null,
+  hindsightTimeoutMs: 12000,
+  hindsightRecallMaxTokens: 2048,
+  mnemopiDataDir: null,
+  visualArchiveEnabled: false,
+  artifactOffloadEnabled: false,
+  contextHygieneEnabled: true,
+  contextPressureOnly: true,
+  providerContextEditing: "off",
+  autoTrimBreakEvenRequests: AUTO_TRIM_BREAK_EVEN_REQUESTS,
+  autoTrimMinSavingChars: 16384,
+  contextNavigationEnabled: true,
+  contextRecallEnabled: true,
+  contextPivotEnabled: true,
+  contextAnchorCacheEnabled: true,
+  contextAnchorStatusEnabled: true,
+  contextGuidanceEnabled: true,
+  promptCacheRoutingEnabled: false,
   telemetryChannel: "stable",
   adaptiveDamageFeedback: false,
   onlineDamageMonitor: true,
@@ -315,8 +361,16 @@ var TRUNC = {
 var MAX_TOOL_OUTPUT_CHARS = 800;
 var MAX_EXPLORER_OUTPUT_CHARS = 12000;
 var LIKELY_ERROR_RE = /(?:command not found|no such file|permission denied|syntax error|cannot find|module not found|compilation error|build failed|test failed|^FAIL\b|ERROR:)/i;
+var TRIM_RISK_LINE_RE = /\b(?:error|fail(?:ed|ure)|warn(?:ing)?|exception|traceback|panic|exit code|exited with|command not found|permission denied|ENOENT|EACCES)\b/i;
+var TRIM_MARKER_MAX_LINES = 6;
+var TRIM_MARKER_MAX_CHARS = 400;
 var ERROR_RETRY_WINDOW = 6;
 var ERROR_RESOLVE_WINDOW = 10;
+var HANDOFF_MAX_CHARS = 16000;
+var HANDOFF_RECALL_MAX_CHARS = 6000;
+var HANDOFF_RECALL_LIMIT = 5;
+var LINEAGE_MAX_DEPTH = 3;
+var LINEAGE_MAX_FILE_BYTES = 64 * 1024 * 1024;
 var METRICS_BUFFER_MAX = 200;
 var RUNTIME_LOG_MAX_BYTES = 5 * 1024 * 1024;
 var CONFIG_KEY = "smartCompact";

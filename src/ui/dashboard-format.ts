@@ -1,6 +1,10 @@
 import type { CompactMetricsEntry, PipelinePhaseTiming } from "../types.ts";
 
-export const DASHBOARD_PAGE_SIZE = 24;
+/** Dashboard lines per page: fits the 85%-high overlay minus its 6 chrome lines; 24 without a known height. */
+export function dashboardPageSize(rows: number | undefined = process.stdout.rows): number {
+  if (!rows) return 24;
+  return Math.max(4, Math.min(24, Math.floor(rows * 0.85) - 6));
+}
 
 export function metricDuration(entry: CompactMetricsEntry): number {
   return entry.durationMs ?? entry.phaseTimings?.reduce((sum, phase) => sum + phase.durationMs, 0) ?? 0;
@@ -53,7 +57,7 @@ export function formatRunDetails(entry: CompactMetricsEntry | undefined, title: 
     "Time: " + (entry.ts ? new Date(entry.ts).toLocaleString() : "unknown"),
     "Status: " + (entry.status ?? "unknown") + " | run: " + (entry.runType ?? "?") + " | mode: " + (entry.mode ?? entry.profile ?? "?"),
     "Provider/model: " + (entry.provider ?? "?") + " / " + (entry.model ?? "?"),
-    "Version/channel: " + (entry.version ?? "legacy") + " / " + (entry.releaseChannel ?? "stable"),
+    "Version/channel: " + (entry.version ?? "legacy") + " / " + (entry.releaseChannel ?? "unknown"),
     "Method: " + (entry.method ?? "?") + " | duration: " + metricMs(totalDuration),
     "Quality: " + metricScore(entry) + " | initial: " + metricNum(entry.initialVerificationScore) + " | gaps: " + metricNum(entry.remainingVerificationGaps ?? entry.verificationGaps),
     "Tokens: before " + metricNum(entry.tokensBefore) + "t | saved " + metricNum(entry.tokensSaved) + "t | prune saved " + metricNum(entry.pruneSavedTokens) + "t",
@@ -71,6 +75,15 @@ export function formatRunDetails(entry: CompactMetricsEntry | undefined, title: 
   if (entry.failureKind) lines.push("Failure kind: " + entry.failureKind);
   if (entry.verificationStage) lines.push("Verification gate: " + entry.verificationStage);
   if (entry.extractionCacheMissReason) lines.push("Extraction miss reason: " + entry.extractionCacheMissReason);
+  if (entry.preparation === "background") {
+    const parts: string[] = ["speculative preparation"];
+    if (entry.status === "discarded") parts.push("discarded (" + (entry.preparationDiscardReason ?? "unspecified") + ")");
+    else if (entry.status === "success") parts.push("used");
+    else if (entry.status) parts.push("outcome " + entry.status);
+    if (typeof entry.preparationReadyMs === "number") parts.push("ready in " + metricMs(entry.preparationReadyMs));
+    if (typeof entry.preparationWaitMs === "number") parts.push("waited " + metricMs(entry.preparationWaitMs));
+    lines.push("Preparation: " + parts.join(" | "));
+  }
   if (entry.fallbackReason) lines.push("Reason: " + entry.fallbackReason);
   if (entry.phaseTimings?.length) {
     lines.push("", "Phase timings:");

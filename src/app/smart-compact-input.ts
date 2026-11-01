@@ -13,7 +13,10 @@ export interface SmartCompactInput {
     | "restore"
     | "loops"
     | "settings"
-    | "forget";
+    | "forget"
+    | "storage"
+    | "trim"
+    | "handoff";
   focus?: string;
   note?: string;
   maxLlmCalls?: number;
@@ -132,6 +135,9 @@ const ACTIONS: Record<string, SmartCompactInput["action"]> = {
   loops: "loops",
   settings: "settings",
   forget: "forget",
+  storage: "storage",
+  trim: "trim",
+  handoff: "handoff",
 };
 
 const MODES: Record<string, CompactionMode | "light"> = {

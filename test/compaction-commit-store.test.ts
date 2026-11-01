@@ -18,9 +18,17 @@ describe("CompactionCommitStore", () => {
   it("commits only the matching run and session exactly once", () => {
     const store = createCompactionCommitStore();
     store.stage(pending("run-123456"));
-    expect(store.take("run-123456", "other")).toBeNull();
     expect(store.take("run-123456", "s")?.runId).toBe("run-123456");
     expect(store.take("run-123456", "s")).toBeNull();
+  });
+
+  it("discards a candidate confirmed for another session instead of keeping it staged", () => {
+    const discarded: string[] = [];
+    const store = createCompactionCommitStore({ onDiscard: (item, reason) => discarded.push(item.runId + ":" + reason) });
+    store.stage(pending("run-123456"));
+    expect(store.take("run-123456", "other")).toBeNull();
+    expect(discarded).toEqual(["run-123456:session-mismatch"]);
+    expect(store.size()).toBe(0);
   });
 
   it("rejects mismatched and duplicate correlation ids", () => {
@@ -35,10 +43,11 @@ describe("CompactionCommitStore", () => {
     expect(() => store.stage(pending("run-123456"))).toThrow("Duplicate");
   });
 
-  it("expires and bounds unconfirmed candidates with a failure callback", () => {
+  it("bounds candidates and expires them using the latest configured TTL", () => {
     const discarded: string[] = [];
+    let ttlMs = 300_000;
     const store = createCompactionCommitStore({
-      ttlMs: 5,
+      ttlMs: () => ttlMs,
       maxEntries: 2,
       onDiscard: (item, reason) => discarded.push(item.runId + ":" + reason),
     });
@@ -47,6 +56,8 @@ describe("CompactionCommitStore", () => {
     store.stage(pending("run-three"));
     expect(discarded).toEqual(["run-one-1:evicted"]);
     Bun.sleepSync(7);
+    expect(store.size()).toBe(2);
+    ttlMs = 5;
     expect(store.size()).toBe(0);
     expect(discarded).toEqual([
       "run-one-1:evicted",

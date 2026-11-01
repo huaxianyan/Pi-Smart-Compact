@@ -5,6 +5,7 @@ import {
   computeToolCharPercentage,
 } from "../src/utils/helpers.ts";
 import {
+  AUTO_TRIGGER_TIMEOUT_CAP_MS,
   DEFAULT_CONFIG,
   VERSION,
   MIN_TOKEN_THRESHOLD,
@@ -86,24 +87,61 @@ describe("validateSmartCompactConfig", () => {
     expect(invalid.agentToolAccess).toBeUndefined();
   });
 
+  it("defaults to pressure-only hygiene, independent of compaction", () => {
+    expect(DEFAULT_CONFIG.contextHygieneEnabled).toBe(true);
+    expect(DEFAULT_CONFIG.contextPressureOnly).toBe(true);
+    const timing: Record<string, unknown> = { contextPressureOnly: false };
+    validateSmartCompactConfig(timing);
+    expect(timing.contextPressureOnly).toBe(false);
+    timing.contextPressureOnly = "false";
+    validateSmartCompactConfig(timing);
+    expect(timing.contextPressureOnly).toBeUndefined();
+    const config: Record<string, unknown> = { contextHygieneEnabled: true, autoTrigger: false };
+    validateSmartCompactConfig(config);
+    expect(config).toEqual({ contextHygieneEnabled: true, autoTrigger: false });
+    const invalid: Record<string, unknown> = { contextHygieneEnabled: "true" };
+    validateSmartCompactConfig(invalid);
+    expect(invalid.contextHygieneEnabled).toBeUndefined();
+  });
+
+  it("keeps artifact offload opt-in and boolean-only", () => {
+    expect(DEFAULT_CONFIG.artifactOffloadEnabled).toBe(false);
+    const enabled: Record<string, unknown> = { artifactOffloadEnabled: true };
+    validateSmartCompactConfig(enabled);
+    expect(enabled.artifactOffloadEnabled).toBe(true);
+    const invalid: Record<string, unknown> = { artifactOffloadEnabled: "true" };
+    validateSmartCompactConfig(invalid);
+    expect(invalid.artifactOffloadEnabled).toBeUndefined();
+  });
+
   it("deletes invalid autoTrigger (string)", () => {
     const sc = { autoTrigger: "true" };
     validateSmartCompactConfig(sc);
     expect("autoTrigger" in sc).toBe(false);
   });
 
-  it("validates the opt-in settled auto-trigger strategy", () => {
-    expect(DEFAULT_CONFIG.autoTriggerStrategy).toBe("native-hook");
-    for (const strategy of ["native-hook", "settled"]) {
+  it("defaults to idle pressure compaction and validates alternate strategies", () => {
+    expect(DEFAULT_CONFIG.autoTriggerStrategy).toBe("settled");
+    for (const strategy of ["native-hook", "settled", "background"]) {
       const valid: Record<string, unknown> = { autoTriggerStrategy: strategy };
       validateSmartCompactConfig(valid);
       expect(valid.autoTriggerStrategy).toBe(strategy);
     }
     const invalid: Record<string, unknown> = {
-      autoTriggerStrategy: "background",
+      autoTriggerStrategy: "unsupported",
     };
     validateSmartCompactConfig(invalid);
     expect(invalid.autoTriggerStrategy).toBeUndefined();
+  });
+
+  it("keeps the experimental visual archive opt-in and boolean-only", () => {
+    expect(DEFAULT_CONFIG.visualArchiveEnabled).toBe(false);
+    const valid: Record<string, unknown> = { visualArchiveEnabled: true };
+    validateSmartCompactConfig(valid);
+    expect(valid.visualArchiveEnabled).toBe(true);
+    const invalid: Record<string, unknown> = { visualArchiveEnabled: "true" };
+    validateSmartCompactConfig(invalid);
+    expect(invalid.visualArchiveEnabled).toBeUndefined();
   });
 
   it("deletes invalid autoTriggerTimeoutMs (string)", () => {
@@ -156,8 +194,11 @@ describe("validateSmartCompactConfig", () => {
     expect(sc.maxLatencyMs).toBeUndefined();
   });
 
-  it("uses a less aggressive default auto-trigger timeout", () => {
-    expect(DEFAULT_CONFIG.autoTriggerTimeoutMs).toBe(120000);
+  it("defaults the automatic timeout to the full 300 s cap", () => {
+    // Recorded MiniMax M3 runs took 26–45 s when they finished and ~40% of
+    // automatic attempts were cut at the old 60 s cap; the default is the cap.
+    expect(DEFAULT_CONFIG.autoTriggerTimeoutMs).toBe(300000);
+    expect(DEFAULT_CONFIG.autoTriggerTimeoutMs).toBe(AUTO_TRIGGER_TIMEOUT_CAP_MS);
   });
 
   it("sanitizes invalid profile overrides", () => {
@@ -244,8 +285,20 @@ describe("validateSmartCompactConfig", () => {
     expect(sc2.minContextPercent).toBe(100);
   });
 
-  it("has default minContextPercent of 60", () => {
-    expect(DEFAULT_CONFIG.minContextPercent).toBe(60);
+  it("discards prepare percentages that are not below the effective apply gate", () => {
+    for (const sc of [
+      { prepareContextPercent: 80 }, // equals default apply gate 80
+      { prepareContextPercent: 70, minContextPercent: 65 },
+      { prepareContextPercent: 65, minContextPercent: 65 },
+      { prepareContextPercent: 81, minContextPercent: 150 }, // invalid apply → default 80
+    ] as Record<string, unknown>[]) {
+      validateSmartCompactConfig(sc);
+      expect("prepareContextPercent" in sc).toBe(false);
+    }
+  });
+
+  it("has default minContextPercent of 80", () => {
+    expect(DEFAULT_CONFIG.minContextPercent).toBe(80);
   });
 
   it("deletes invalid backupDir (number)", () => {
@@ -329,6 +382,19 @@ describe("validateSmartCompactConfig", () => {
     expect(invalid.maxLlmInputTokens).toBeUndefined();
     expect(invalid.codexMaxCallMs).toBeUndefined();
     expect(invalid.maxLatencyMs).toBeUndefined();
+  });
+
+  it("accepts maxContextTokens as 0 (off) or 16384–2000000 and discards the rest", () => {
+    for (const value of [0, 16_384, 200_000, 2_000_000]) {
+      const sc: Record<string, unknown> = { maxContextTokens: value };
+      validateSmartCompactConfig(sc);
+      expect(sc.maxContextTokens).toBe(value);
+    }
+    for (const value of [16_383, 2_000_001, -1, 200_000.5, Number.NaN, "200000"]) {
+      const sc: Record<string, unknown> = { maxContextTokens: value };
+      validateSmartCompactConfig(sc);
+      expect("maxContextTokens" in sc).toBe(false);
+    }
   });
 
   it("accepts slow-model timeout values up to the raised ceilings (#61)", () => {

@@ -1,10 +1,10 @@
+import { contextUsage } from "./context-usage.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
   BUDGET_LIMITS,
-  FIVE_MINUTES_MS,
   MIN_TOKEN_THRESHOLD,
-  VERSION,
 } from "../constants.ts";
 import {
   buildMetricsReport,
@@ -12,12 +12,22 @@ import {
 } from "../ui/metrics-report.ts";
 import { formatCompactErrorForUi } from "../ui/error-format.ts";
 import { loadConfig } from "../utils/config.ts";
-import * as log from "../utils/logger.ts";
-import { safeContextPercent } from "../utils/tokens.ts";
+import { errorDetail, formatRecentIssues, recordIssue } from "../utils/issues.ts";
+import { effectiveContextWindow, safeContextPercent } from "../utils/tokens.ts";
 import { resolveSessionId } from "../infra/session-identity.ts";
 import { resolveModels } from "./model-routing.ts";
 import type { PendingSlot } from "./pending-slot.ts";
 import { runSmartCompact } from "./run-smart-compact.ts";
+import {
+ expandedRow,
+ firstTextContent,
+ metaLine,
+ rawFallbackRow,
+ safeArg,
+ statusLabel,
+ summarizeLine,
+ tryRow,
+} from "../ui/tool-rows.ts";
 import type { SessionRunLock } from "./session-run-lock.ts";
 import { parseSmartCompactTool } from "./smart-compact-input.ts";
 import type { SmartCompactPolicy } from "./smart-compact-policy.ts";
@@ -38,53 +48,42 @@ export function registerSmartCompactTool(
     name: "smart_compact",
     label: "Smart Compact",
     description:
-      "EESV smart compaction v" +
-      VERSION +
-      " with deterministic extraction, exploration, and verification. Prepares and stages a verified summary for the next /compact; this tool does not apply compaction mid-turn. The staged summary expires after 5 minutes. Call only when actual context usage is high; tool=XX% is tool-output ratio, not context fullness. Checks the configured context threshold before starting.",
-    promptSnippet: "Smart compaction",
-    promptGuidelines: [
-      "Use only when actual context usage is high (for example pi-auto-context context>=60%).",
-      "Do NOT call just because pi-auto-context shows tool=XX%; tool% is tool-output ratio, not context fullness.",
-      "Prefer this over default compact only when compaction is actually needed.",
-    ],
+      "Prepares and stages a verified summary for the next /compact (configured staging TTL; never applies mid-turn). Call only when actual context usage is high; tool=XX% is tool-output share, not fullness.",
     parameters: {
       type: "object",
       properties: {
         mode: {
           type: "string",
-          description: "fast, balanced, thorough, or auto. Default: auto.",
+          description: "fast, balanced, thorough or auto (default).",
         },
         profile: {
           type: "string",
-          description: "Deprecated alias: light, balanced, or aggressive.",
+          description: "Deprecated mode alias.",
         },
         verbose: {
           type: "boolean",
-          description: "Show detailed pipeline output.",
+          description: "Detailed output.",
         },
         dry_run: {
           type: "boolean",
-          description: "Run the pipeline but skip applying the compaction.",
+          description: "Do not stage.",
         },
         report: {
           type: "boolean",
-          description:
-            "Return recent performance metrics instead of compacting.",
+          description: "Return metrics only.",
         },
         dashboard: {
           type: "boolean",
-          description:
-            "Write a local HTML metrics dashboard and return its path.",
+          description: "Write metrics dashboard.",
         },
         focus: {
           type: "string",
-          description:
-            "Topic or path that should receive extra preservation budget.",
+          description: "Topic/path to preserve more.",
         },
         max_calls: {
           type: "number",
           description:
-            "Maximum LLM calls for this run (" +
+            "LLM call cap (" +
             BUDGET_LIMITS.CALLS.min +
             "-" +
             BUDGET_LIMITS.CALLS.max +
@@ -93,7 +92,7 @@ export function registerSmartCompactTool(
         max_input_tokens: {
           type: "number",
           description:
-            "Aggregate prompt-token budget for this run (" +
+            "Prompt-token cap (" +
             BUDGET_LIMITS.INPUT_TOKENS.min +
             "-" +
             BUDGET_LIMITS.INPUT_TOKENS.max +
@@ -102,13 +101,26 @@ export function registerSmartCompactTool(
         max_latency_ms: {
           type: "number",
           description:
-            "Optional pipeline cancellation budget in milliseconds (" +
+            "Latency cap ms (" +
             BUDGET_LIMITS.LATENCY_MS.min +
             "-" +
             BUDGET_LIMITS.LATENCY_MS.max +
             ").",
         },
       },
+    },
+    renderCall(args, theme) {
+      const label = theme.fg("toolTitle", "smart_compact ");
+      const flags = [
+        safeArg(args.mode, 20),
+        args.dry_run === true ? "dry-run" : "",
+        args.report === true ? "report" : "",
+        args.dashboard === true ? "dashboard" : "",
+      ].filter(Boolean).join(" ");
+      return new Text(label + theme.fg("muted", flags || "auto"), 0, 0);
+    },
+    renderResult(result, { expanded }, theme, context) {
+      return tryRow(theme, () => renderCompactRow(result, expanded, theme, context), result, expanded);
     },
     async execute(_id, params, signal, _onUpdate, ctx) {
       if (!policy.isAgentToolEnabled()) {
@@ -131,45 +143,45 @@ export function registerSmartCompactTool(
         timeoutMs: maxLatencyMs,
       } = parsedInput.value;
       if (action === "metrics" || action === "dashboard") {
-        const report = buildMetricsReport();
+        // A failed run tells the agent to review metrics; the findings live in recent issues.
+        const report = formatRecentIssues() + "\n\n" + buildMetricsReport();
         const dashboard =
           action === "dashboard" ? writeMetricsDashboard() : null;
         return textResult(
           report + (dashboard ? "\n\nDashboard: " + dashboard : ""),
+          { display: { kind: "metrics", dashboard: dashboard !== null } },
         );
       }
 
       const config = loadConfig();
       const resolvedMode = mode ?? config.mode;
       const sessionId = resolveSessionId(ctx);
-      if (!dryRun && pendingRef.peek(sessionId)?.sessionId === sessionId) {
+      if (!dryRun && pendingRef.peek(sessionId)) {
         return textResult(
-          "A smart summary is already staged; context is unchanged. Run /compact before the 5-minute staging TTL expires to apply it. No LLM calls were made.",
+          "A smart summary is already staged; context is unchanged. Run /compact before the configured staging TTL expires to apply it. No LLM calls were made.",
         );
       }
 
-      const usage = ctx.getContextUsage?.();
+      const usage = contextUsage(ctx);
       const totalTokens = usage?.tokens ?? 0;
-      const contextPercent = safeContextPercent(
-        totalTokens,
-        ctx.model?.contextWindow,
-      );
+      const window = effectiveContextWindow(ctx.model, config);
+      const contextPercent = safeContextPercent(totalTokens, window);
       const percent = Math.round(contextPercent);
       if (!totalTokens || totalTokens < MIN_TOKEN_THRESHOLD) {
         return textResult(
           "Context is not large enough for compaction (" +
-            totalTokens.toLocaleString() +
-            " tokens, " +
-            percent +
-            "%). No action needed.",
+          totalTokens.toLocaleString() +
+          " tokens, " +
+          percent +
+          "%). No action needed.",
         );
       }
       if (contextPercent < config.minContextPercent) {
         return textResult(
           "Compaction skipped: context " + percent + "% (" + totalTokens.toLocaleString() +
-            " / " + (ctx.model?.contextWindow ?? 0).toLocaleString() + " tokens), below the " +
-            config.minContextPercent + "% agent-tool threshold. tool=XX% measures tool-output ratio, not context usage. " +
-            "For deliberate early compaction, the user can run /smart-compact; preview and safety checks still apply.",
+          " / " + (window ?? 0).toLocaleString() + " tokens), below the " +
+          config.minContextPercent + "% agent-tool threshold. tool=XX% measures tool-output ratio, not context usage. " +
+          "For deliberate early compaction, the user can run /smart-compact; preview and safety checks still apply.",
         );
       }
 
@@ -209,18 +221,31 @@ export function registerSmartCompactTool(
               {
                 type: "text" as const,
                 text:
-                  "Smart summary prepared (" +
-                  resolvedMode +
-                  " → " +
-                  (staged.details.mode ?? staged.details.profile) +
-                  "). Tokens: " +
+                  (staged.details.method === "native"
+                    ? "Native compaction prepared (" + staged.details.model + "; provider state, not EESV-verified). Tokens: "
+                    : "Smart summary prepared (" +
+                    resolvedMode +
+                    " → " +
+                    (staged.details.mode ?? staged.details.profile) +
+                    "). Tokens: ") +
                   (staged.tokensBefore ?? 0).toLocaleString() +
                   " — staged, not applied, for " +
-                  Math.round(FIVE_MINUTES_MS / 60_000) +
+                  config.pendingTtlMs / 60_000 +
                   " min. Context is unchanged. Run /compact within that time to apply it; expiry discards the candidate.",
               },
             ],
-            details: staged.details,
+            // Explicit display discriminant: staged is NEVER applied — the
+            // renderer must not guess from the shared details shape.
+            details: {
+              ...staged.details,
+              display: {
+                state: "staged",
+                method: staged.details.method,
+                mode: staged.details.mode ?? staged.details.profile ?? resolvedMode,
+                tokens: staged.tokensBefore ?? 0,
+                ttlMinutes: config.pendingTtlMs / 60_000,
+              },
+            },
           };
         }
         if (outcome.kind === "dry-run") {
@@ -237,32 +262,90 @@ export function registerSmartCompactTool(
                   "s). Pipeline ran successfully; no summary was staged.",
               },
             ],
-            details: outcome.details,
+            details: {
+              ...outcome.details,
+              display: { state: "dry-run", mode: resolvedMode, seconds: Number(seconds) },
+            },
           };
         }
         if (outcome.kind === "cancelled") {
           return textResult(
             "Smart compact cancelled by " +
-              outcome.source +
-              "; no summary was staged.",
+            outcome.source +
+            "; no summary was staged.",
+            { display: { state: "cancelled", source: outcome.source } },
           );
         }
         return textResult(
           "Smart compact skipped: " +
-            outcome.reason.replace(/-/g, " ") +
-            ". No summary was staged.",
+          outcome.reason.replace(/-/g, " ") +
+          ". No summary was staged.",
+          { display: { state: "skipped" } },
         );
       } catch (error) {
-        log.debugError("Smart compact tool failed", error);
+        recordIssue({ key: "tool.smart-compact", message: "smart_compact failed: " + errorDetail(error) + ".", error });
         throw new Error(formatCompactErrorForUi(error));
       }
     },
   });
 }
 
-function textResult(text: string): {
+function textResult(
+  text: string,
+  details: unknown = undefined,
+): {
   content: Array<{ type: "text"; text: string }>;
-  details: undefined;
+  details: unknown;
 } {
-  return { content: [{ type: "text", text }], details: undefined };
+  return { content: [{ type: "text", text }], details };
+}
+
+interface RenderableResult {
+  content?: ReadonlyArray<{ type: string; text?: string }>;
+  details?: unknown;
+}
+
+interface RenderContext {
+  isError: boolean;
+}
+
+/** Honest states only: staged is never green — only an actually applied
+ * compaction would be, and this tool never applies. */
+function renderCompactRow(
+  result: RenderableResult,
+  expanded: boolean,
+  theme: Theme,
+  context: RenderContext,
+): Text {
+  if (context.isError) {
+    const head = theme.fg("error", "smart_compact failed:");
+    return expanded
+      ? expandedRow(theme, result, [head])
+      : new Text(head + " " + summarizeLine(firstTextContent(result.content), 140), 0, 0);
+  }
+  const display = (result.details as { display?: Record<string, unknown> } | undefined)?.display;
+  if (!display) return rawFallbackRow(theme, result, expanded);
+  const lines: string[] = [];
+  if (display.state === "staged") {
+    lines.push(
+      statusLabel(theme, "pending") + " " +
+      theme.fg("muted", "staged — NOT applied; run /compact within " + (Number(display.ttlMinutes) || 0) + " min"),
+    );
+    lines.push(
+      metaLine(theme, "summary", (display.method === "native" ? "native" : String(display.mode ?? "")) +
+        " · " + (Number(display.tokens) || 0).toLocaleString() + " tokens"),
+    );
+  } else if (display.state === "dry-run") {
+    lines.push(statusLabel(theme, "info") + " " + theme.fg("muted", "dry run — nothing staged"));
+    if (display.seconds) lines.push(metaLine(theme, "pipeline", display.seconds + "s"));
+  } else if (display.state === "cancelled") {
+    lines.push(statusLabel(theme, "cancelled") + " " + theme.fg("muted", "by " + String(display.source ?? "host")));
+  } else if (display.state === "skipped") {
+    lines.push(statusLabel(theme, "skipped") + " " + theme.fg("dim", summarizeLine(firstTextContent(result.content), 140)));
+  } else if (display.kind === "metrics") {
+    lines.push(statusLabel(theme, "info") + " " + theme.fg("muted", "metrics report" + (display.dashboard ? " (dashboard written)" : "")));
+  } else {
+    return rawFallbackRow(theme, result, expanded);
+  }
+  return expanded ? expandedRow(theme, result, lines) : new Text(lines.join("\n"), 0, 0);
 }

@@ -22,7 +22,9 @@
  * "single new exchange" case (user message + assistant + ≤14 tool turns) so
  * the slow path (hashing) only runs when something meaningful changed.
  */
-import type { EntryIdFingerprint } from "../types.ts";
+import type { EntryIdFingerprint, LlmMessage } from "../types.ts";
+/** Content proof for projected/recovered messages whose source IDs can stay unchanged. */
+export declare function hashMessages(messages: readonly LlmMessage[], count?: number): string;
 /** Tail length; chosen to cover one "user → assistant → many tool turns" cycle. */
 export declare const FINGERPRINT_TAIL_LEN = 16;
 export declare function buildEntryIdFingerprint(ids: ReadonlyArray<string>): EntryIdFingerprint;

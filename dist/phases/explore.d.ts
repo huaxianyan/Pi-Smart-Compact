@@ -1,7 +1,7 @@
 /**
  * Phase 2: Targeted LLM Exploration.
  */
-import type { Model, Api, ProviderHeaders } from "@earendil-works/pi-ai";
+import type { Model, Api, Context, ProviderHeaders } from "@earendil-works/pi-ai";
 import type { LlmMessage, StructuredExtraction, ExplorationReport } from "../types.ts";
 import type { SmartCompactServices } from "../infra/services.ts";
 import { SecretScrubber } from "../domain/scrub.ts";
@@ -18,14 +18,13 @@ export declare function executeExplorationTool(call: {
 export declare function parseExplorationReport(text: string, llmMessages: LlmMessage[]): ExplorationReport;
 export declare function buildExplorationReportFromParsed(parsed: unknown, llmMessages: LlmMessage[]): ExplorationReport;
 export declare function fallbackExplorationReport(llmMessages: LlmMessage[]): ExplorationReport;
-/**
- * Top-level exploration entry point.
- *
- * `services` is threaded in explicitly so concurrent production runs never
- * share mutable tool-support state. The optional `getDefaultServices()`
- * fallback exists only for legacy direct callers and test/REPL use; the
- * production orchestrator always supplies a run-scoped container.
- */
+/** Build the known first explorer request; tool-feedback rounds are checked at dispatch. */
+export declare function buildExplorerRequest(extraction: StructuredExtraction, model: Model<Api>, prevSummary?: string, userNote?: string): {
+    context: Context;
+    maxTokens: number;
+    userContent: string;
+};
+export declare function explorationToolSupportKey(model: Model<Api>): string;
 export declare function exploreConversation(llmMessages: LlmMessage[], extraction: StructuredExtraction, model: Model<Api>, auth: {
     apiKey: string;
     headers?: ProviderHeaders;
@@ -34,4 +33,8 @@ export declare function exploreConversation(llmMessages: LlmMessage[], extractio
     rounds: number;
     toolSupported: boolean;
 }>;
+export declare function buildDirectExplorationRequest(llmMessages: LlmMessage[], extraction: StructuredExtraction, model: Model<Api>, prevSummary?: string, userNote?: string): {
+    context: Context;
+    maxTokens: number;
+};
 //# sourceMappingURL=explore.d.ts.map

@@ -16,6 +16,7 @@
  */
 import type { RcBase, StatedRc } from "../run-context.ts";
 import type { CompactionMode, MetricsSnapshot } from "../../types.ts";
+export declare function runType(rc: Pick<RcBase, "flags">): "manual" | "auto" | "tool";
 export declare function buildSuccessMetrics(rc: StatedRc, status: "success" | "dry-run" | "cancelled"): MetricsSnapshot;
 export declare function recordSuccessMetrics(rc: StatedRc, status: "success" | "dry-run" | "cancelled"): Promise<void>;
 /**

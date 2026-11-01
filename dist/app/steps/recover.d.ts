@@ -9,5 +9,14 @@
  * messages — the summary still beats no summary at all.
  */
 import type { WindowedRc, RecoveredRc } from "../run-context.ts";
+import type { LlmMessage } from "../../types.ts";
+/** Read-only source recovery shared by preflight and execution. */
+export declare function recoverSourceMessages(sessionId: string, entries: WindowedRc["toCompact"], cwd: string): Promise<{
+    messages: Array<{
+        entryId: string;
+        message: LlmMessage;
+    }>;
+    fromLog: boolean;
+}>;
 export declare function recoverSessionLog(rc: WindowedRc): Promise<RecoveredRc>;
 //# sourceMappingURL=recover.d.ts.map

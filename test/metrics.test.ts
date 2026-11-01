@@ -100,8 +100,7 @@ describe("metrics reporting", () => {
         success: true,
       });
     }
-    const snapshot = buildSuccessMetrics(
-      {
+    const rc = {
         runId: "run-stage-quality",
         services: svc,
         flags: { skipCompact: false, autoTriggered: false },
@@ -142,9 +141,8 @@ describe("metrics reporting", () => {
           relaxedSoftBoundaries: ["anchor"],
           hardBoundaryAdjusted: true,
         },
-      } as any,
-      "success",
-    );
+      } as any;
+    const snapshot = buildSuccessMetrics(rc, "success");
     expect(snapshot.runId).toBe("run-stage-quality");
     expect(snapshot).toMatchObject({
       tokensSaved: 500,
@@ -169,6 +167,9 @@ describe("metrics reporting", () => {
       snapshot.providerRoutes?.find((route) => route.stage === "verify")
         ?.qualityScore,
     ).toBeUndefined();
+    // A run with deterministic fallback must not credit the route with the summary's coverage.
+    const degraded = buildSuccessMetrics({ ...rc, generationFallbacks: ["1 synthesis batch fallback"] }, "success");
+    expect(degraded.providerRoutes?.find((route) => route.stage === "synthesize")?.qualityScore).toBeUndefined();
   });
 
   it("persists schema-v2 failure taxonomy without error text", async () => {
@@ -377,7 +378,7 @@ describe("metrics reporting", () => {
     expect(html).toContain("PROMOTE");
     expect(html).toContain("Stage provider/model comparison");
     expect(html).toContain("openai/gpt");
-    expect(html).toContain("Runs (total/applied)");
+    expect(html).toContain("Runs (total/attempted/applied)");
     expect(html).toContain("20/20");
     expect(metricsReport.buildMetricsReport(entries, damage)).toContain(
       "stable total/applied=20/20 · canary total/applied=20/20",
@@ -515,5 +516,16 @@ describe("metrics reporting", () => {
     const html = fs.readFileSync(fp!, "utf8");
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("reports nearest-rank p95 latency instead of the slowest run", () => {
+    const entries = Array.from({ length: 20 }, (_, index) => ({
+      ts: new Date().toISOString(), sessionId: "s" + index, status: "success" as const,
+      totalCalls: 1, totalInput: 0, totalOutput: 0, totalCacheHit: 0, avgLatency: 0, cacheHitRate: 0,
+      durationMs: (index + 1) * 100,
+    }));
+    const report = metricsReport.buildMetricsReport(entries);
+    expect(report).toContain("Latency: avg 1050ms, p95 1900ms");
+    expect(metricsReport.buildMetricsReport(entries.slice(0, 1))).toContain("p95 100ms");
   });
 });

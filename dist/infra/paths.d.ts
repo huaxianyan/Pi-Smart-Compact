@@ -35,6 +35,8 @@ export declare function metricsLogFile(): string;
 export declare function runLocksDir(): string;
 /** One-shot, branch-scoped native-compaction continuity handoffs. */
 export declare function nativeContinuityDir(): string;
+/** Durable, private tool-output spill files, distinct from disposable caches. */
+export declare function toolArtifactsDir(): string;
 /** Project-scoped persistent context graph (SQLite + FTS5). */
 export declare function contextGraphFile(): string;
 /** Damage reports JSONL log. */

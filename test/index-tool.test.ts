@@ -2,6 +2,11 @@ import { describe, expect, it } from "bun:test";
 import smartCompactExtension from "../src/index.ts";
 import { BUDGET_LIMITS } from "../src/constants.ts";
 import { registerSmartCompactTool } from "../src/app/register-smart-compact-tool.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { resetConfigCache } from "../src/utils/config.ts";
+import { recordIssue, resetIssuesForTests } from "../src/utils/issues.ts";
 
 describe("smart_compact tool cancellation", () => {
   it("explains the actual threshold, model window, and manual early-compaction option", async () => {
@@ -20,6 +25,54 @@ describe("smart_compact tool cancellation", () => {
     expect(result.content[0].text).toContain("/smart-compact");
     expect(result.content[0].text).not.toContain("tool=97%");
     expect(tool.description).toContain("stages");
+  });
+  it("includes recent issues in the agent's metrics report so a gate failure is diagnosable", async () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "smart-compact-tool-report-"));
+    resetIssuesForTests();
+    try {
+      let tool: any;
+      registerSmartCompactTool({ registerTool: (definition: any) => { tool = definition; } } as any, {
+        pendingRef: { peek: () => undefined } as any, runLock: {} as any,
+        onNativeApplyError: () => false, policy: { isAgentToolEnabled: () => true } as any,
+      });
+      recordIssue({ key: "verify.gate", message: "Verification gate rejected summary (60/100, 2 unresolved gaps): Inconsistency: rule A" });
+      const result = await tool.execute("report", { report: true }, undefined, () => {}, {});
+      expect(result.content[0].text).toContain("Recent issues (1)");
+      expect(result.content[0].text).toContain("Inconsistency: rule A");
+    } finally {
+      resetIssuesForTests();
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+    }
+  });
+
+  it("measures the agent-tool threshold against maxContextTokens when set", async () => {
+    const originalHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "smart-compact-tool-cap-"));
+    fs.mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".pi", "agent", "settings.json"),
+      JSON.stringify({ smartCompact: { minContextPercent: 60, maxContextTokens: 200_000 } }));
+    process.env.HOME = home;
+    resetConfigCache();
+    try {
+      let tool: any;
+      registerSmartCompactTool({ registerTool: (definition: any) => { tool = definition; } } as any, {
+        pendingRef: { peek: () => undefined } as any, runLock: {} as any,
+        onNativeApplyError: () => false, policy: { isAgentToolEnabled: () => true } as any,
+      });
+      const result = await tool.execute("capped", {}, undefined, () => {}, {
+        model: { contextWindow: 1_000_000 }, getContextUsage: () => ({ tokens: 100_000 }),
+        sessionManager: { getSessionId: () => "capped-compact" },
+      });
+      // 100k of the 200k cap (not 10% of the 1M window).
+      expect(result.content[0].text).toContain("context 50% (100,000 / 200,000 tokens)");
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      resetConfigCache();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
   it("keeps manual settings explicit when TUI is unavailable", async () => {
     let command: any;
@@ -76,7 +129,7 @@ describe("smart_compact tool cancellation", () => {
       BUDGET_LIMITS.CALLS.min + "-" + BUDGET_LIMITS.CALLS.max,
     );
     expect(tool.parameters.properties.max_latency_ms.description).toBe(
-      "Optional pipeline cancellation budget in milliseconds (" +
+      "Latency cap ms (" +
         BUDGET_LIMITS.LATENCY_MS.min +
         "-" +
         BUDGET_LIMITS.LATENCY_MS.max +
@@ -153,7 +206,8 @@ describe("smart_compact tool cancellation", () => {
     }
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toContain("internal");
-    expect((failure as Error).message).not.toContain("synthetic pipeline failure");
+    // Literal first error line is shown (scrubbed, bounded) so failures are diagnosable.
+    expect((failure as Error).message).toContain("(synthetic pipeline failure)");
   });
 
   it("does not start the pipeline when the host signal is already aborted", async () => {

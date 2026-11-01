@@ -5,7 +5,11 @@ interface Entry {
   createdAt: number;
 }
 
-export type CommitDiscardReason = "expired" | "evicted" | "aborted" | "shutdown" | "apply-error";
+/**
+ * "foreign": another compaction (Pi's own or another extension's) was applied while this candidate waited.
+ * "session-mismatch": the run was confirmed for a different session; the candidate can never commit.
+ */
+export type CommitDiscardReason = "expired" | "evicted" | "aborted" | "shutdown" | "apply-error" | "foreign" | "session-mismatch";
 
 export interface CompactionCommitStore {
   stage(pending: PendingCompaction): void;
@@ -20,11 +24,11 @@ export interface CompactionCommitStore {
  * Nothing durable is written until `take()` confirms both run and session.
  */
 export function createCompactionCommitStore(options: {
-  ttlMs?: number;
+  ttlMs?: number | (() => number);
   maxEntries?: number;
   onDiscard?: (pending: PendingCompaction, reason: CommitDiscardReason) => void;
 } = {}): CompactionCommitStore {
-  const ttlMs = Math.max(1, options.ttlMs ?? 5 * 60_000);
+  const ttlMs = () => Math.max(1, (typeof options.ttlMs === "function" ? options.ttlMs() : options.ttlMs) ?? 5 * 60_000);
   const maxEntries = Math.max(1, options.maxEntries ?? 16);
   const entries = new Map<string, Entry>();
 
@@ -39,7 +43,7 @@ export function createCompactionCommitStore(options: {
   const sweep = (): void => {
     const now = Date.now();
     for (const [runId, entry] of entries) {
-      if (now - entry.createdAt > ttlMs) remove(runId, "expired", true);
+      if (now - entry.createdAt > ttlMs()) remove(runId, "expired", true);
     }
   };
 
@@ -61,7 +65,11 @@ export function createCompactionCommitStore(options: {
     take(runId, sessionId) {
       sweep();
       const entry = entries.get(runId);
-      if (!entry || entry.pending.sessionId !== sessionId) return null;
+      if (!entry) return null;
+      if (entry.pending.sessionId !== sessionId) {
+        remove(runId, "session-mismatch", true);
+        return null;
+      }
       entries.delete(runId);
       return entry.pending;
     },

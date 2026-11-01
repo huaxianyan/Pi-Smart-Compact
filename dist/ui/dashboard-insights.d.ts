@@ -1,4 +1,4 @@
-import { type CanaryAssessment, type DamageTelemetryEntry } from "../domain/telemetry.ts";
+import { type CanaryAssessment, type DamageTelemetryEntry, type PreparationPolicyStats, type QualityProvenanceStats } from "../domain/telemetry.ts";
 import type { CompactMetricsEntry, ProviderRouteStage, TelemetryFailureKind } from "../types.ts";
 export interface DashboardDataConfidence {
     score: number;
@@ -41,7 +41,12 @@ export interface DashboardProviderInsight {
     avgQuality: number | null;
     qualityCoverage: number;
     avgLatencyMs: number;
+    /** Quota-inclusive: input + cache read + cache write + output per call. */
     avgTokensPerCall: number;
+    avgCacheReadTokensPerCall: number;
+    avgCacheWriteTokensPerCall: number;
+    usageBasis?: "reported" | "estimated";
+    billing?: "api" | "subscription";
 }
 export interface DashboardInsights {
     confidence: DashboardDataConfidence;
@@ -49,10 +54,13 @@ export interface DashboardInsights {
     providers: DashboardProviderInsight[];
     canary: CanaryAssessment;
     failures: Partial<Record<TelemetryFailureKind, number>>;
+    preparation: PreparationPolicyStats;
+    qualityProvenance: QualityProvenanceStats;
 }
 export declare function calculateDashboardDataConfidence(entries: readonly CompactMetricsEntry[], now?: number): DashboardDataConfidence;
 export declare function formatDashboardQuality(insights: DashboardInsights): string[];
 export declare function formatDashboardProviders(insights: DashboardInsights): string[];
+export declare function formatDashboardPreparation(insights: DashboardInsights): string[];
 export declare function formatDashboardCanary(insights: DashboardInsights): string[];
 export declare function buildDashboardInsights(entries: readonly CompactMetricsEntry[], damageEntries?: readonly DamageTelemetryEntry[], options?: {
     version?: string;

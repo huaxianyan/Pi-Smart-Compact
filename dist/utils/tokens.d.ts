@@ -1,10 +1,22 @@
 /**
  * Token estimation with provider-specific ratios and EMA calibration.
  */
-import type { LlmMessage, ProviderCapabilities } from "../types.ts";
+import type { LlmMessage, ProviderCacheCaps, ProviderCapabilities } from "../types.ts";
 export declare function getProviderCaps(provider: string): ProviderCapabilities;
+/** Documented prompt-cache control surface for a provider; conservative defaults for unknowns. */
+export declare function getProviderCacheCaps(provider: string | undefined): ProviderCacheCaps;
 /** Finite context usage percentage; invalid/unknown window metadata is 0%. */
 export declare function safeContextPercent(totalTokens: number | null | undefined, contextWindow: number | null | undefined): number;
+/**
+ * Window for automatic trigger/preparation percentages: maxContextTokens when
+ * set (>0) and below a valid model window, else the model window unchanged.
+ * Hard headroom checks must keep using model.contextWindow.
+ */
+export declare function effectiveContextWindow(model: {
+    contextWindow: number;
+} | undefined, config: {
+    maxContextTokens?: number;
+}): number | undefined;
 /**
  * Bounded per-(provider,model) calibration factors smoothed by EMA.
  * Provider/model tokenization is process-wide knowledge rather than session
@@ -20,8 +32,6 @@ export declare class TokenCalibrationStore {
     calibrate(estimated: number, actual: number, provider?: string, model?: string): void;
     size(): number;
 }
-/** @internal Test-only reset; do not call from production code. */
-export declare function __resetTokenCalibrationForTests(): void;
 export declare function estimateTokens(text: string, provider?: string, model?: string, calibration?: TokenCalibrationStore): number;
 export declare function calibrateFromResponse(estimated: number, actual: number, provider?: string, model?: string, calibration?: TokenCalibrationStore): void;
 export interface TokenEstimator {

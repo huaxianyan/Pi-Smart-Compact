@@ -14,14 +14,16 @@ import {
   initTheme,
 } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
+import type { SettingsList } from "@earendil-works/pi-tui";
 import {
   complexConfigPaths,
-  complexSettingsCategories,
   modelSettingsItems,
+  profileBudgetsList,
 } from "../src/ui/settings-complex.ts";
 import {
   createSettingsController,
   createSettingsRoot,
+  settingsCategoryItems,
 } from "../src/ui/settings-overlay.ts";
 import {
   readGlobalConfigValue,
@@ -87,14 +89,20 @@ describe("complex settings coverage", () => {
       "segmentationModel",
       "verificationModel",
       "minContextPercent",
-      "autoTriggerTimeoutMs",
+      "maxContextTokens",
       "maxLlmCalls",
       "maxLlmInputTokens",
-      "codexMaxCallMs",
       "maxLatencyMs",
+      "autoTriggerTimeoutMs",
+      "codexMaxCallMs",
       "pendingTtlMs",
       "backupDir",
       "pinPaths",
+      "hindsightBaseUrl",
+      "hindsightBankId",
+      "hindsightApiKeyEnv",
+      "hindsightTimeoutMs",
+      "hindsightRecallMaxTokens",
       "profiles.light.summaryBudgetTokens",
       "profiles.light.keepRecentTokens",
       "profiles.light.minChunkTokens",
@@ -114,9 +122,7 @@ describe("complex settings coverage", () => {
       "profiles.aggressive.singlePassMaxTokens",
       "profiles.aggressive.batchMaxTokens",
     ]);
-    expect(
-      complexSettingsCategories(context(), () => {}).map((item) => item.id),
-    ).toEqual(["models", "limits", "paths", "profiles"]);
+
   });
 });
 
@@ -168,7 +174,7 @@ describe("model settings", () => {
     const root = createSettingsRoot(policy, ctx, () => {});
     const controller = createSettingsController(root, root, () => {});
     controller.focused = true;
-    for (let index = 0; index < 5; index++) controller.handleInput?.("\x1b[B");
+    root.selectItem("models");
     controller.handleInput?.("\r");
     controller.handleInput?.("\r");
 
@@ -189,12 +195,35 @@ describe("model settings", () => {
   });
 });
 
+const branchPolicy = {
+  snapshot: () => ({
+    agentToolAccess: "inherit",
+    agentToolEnabled: true,
+    autoTrigger: true,
+    showStatus: true,
+  }),
+  branchOverrides: () => ({}),
+} as any;
+
+/** Open a category (optionally a nested submenu row) and select a row. */
+function openList(categoryId: string, path: string[], render: () => void = () => {}): SettingsList {
+  const category = settingsCategoryItems(branchPolicy, context(), render).find(
+    (item) => item.id === categoryId,
+  )!;
+  let list = category.submenu?.("", () => {}) as SettingsList;
+  for (const [index, id] of path.entries()) {
+    list.selectItem(id);
+    if (index < path.length - 1) {
+      list.handleInput("\r");
+      list = (list as unknown as { submenuComponent: SettingsList }).submenuComponent;
+    }
+  }
+  return list;
+}
+
 describe("validated input settings", () => {
   it("rejects invalid numeric input without writing and accepts decimals where valid", async () => {
-    const limits = complexSettingsCategories(context(), () => renders++).find(
-      (item) => item.id === "limits",
-    )!;
-    const list = limits.submenu?.("6 settings", () => {});
+    const list = openList("compaction", ["minContextPercent"], () => renders++);
     list?.handleInput?.("\r");
     list?.handleInput?.("101");
     list?.handleInput?.("\r");
@@ -209,10 +238,8 @@ describe("validated input settings", () => {
   });
 
   it("requires an absolute backup directory and deduplicates pinned paths", async () => {
-    const paths = complexSettingsCategories(context(), () => {}).find(
-      (item) => item.id === "paths",
-    )!;
-    const list = paths.submenu?.("2 settings", () => {});
+    await writeGlobalConfigValue("backupEnabled", true);
+    const list = openList("privacy", ["backupDir"]);
     list?.handleInput?.("\r");
     list?.handleInput?.("relative/backups");
     list?.handleInput?.("\r");
@@ -220,11 +247,11 @@ describe("validated input settings", () => {
     expect(readGlobalConfigValue("backupDir")).toBeUndefined();
     list?.handleInput?.("\x1b");
 
-    list?.handleInput?.("\x1b[B");
-    list?.handleInput?.("\r");
-    list?.handleInput?.("src/a.ts, src/a.ts, docs/b.md");
-    list?.handleInput?.("\r");
-    await settleActive(list);
+    const pins = openList("hygiene", ["pinPaths"]);
+    pins.handleInput("\r");
+    pins.handleInput("src/a.ts, src/a.ts, docs/b.md");
+    pins.handleInput("\r");
+    await settleActive(pins);
     expect(readGlobalConfigValue("pinPaths")).toEqual([
       "src/a.ts",
       "docs/b.md",
@@ -232,10 +259,7 @@ describe("validated input settings", () => {
   });
 
   it("surfaces cross-field profile invariants and persists a valid budget", async () => {
-    const profiles = complexSettingsCategories(context(), () => {}).find(
-      (item) => item.id === "profiles",
-    )!;
-    const profileList = profiles.submenu?.("3 profiles", () => {});
+    const profileList = openList("advanced", ["limits", "profiles", "thorough"]);
     profileList?.handleInput?.("\r");
     for (let index = 0; index < 3; index++) profileList?.handleInput?.("\x1b[B");
     profileList?.handleInput?.("\r");
@@ -256,5 +280,27 @@ describe("validated input settings", () => {
     expect(readGlobalConfigValue("profiles.light.maxChunkTokens")).toBe(
       20_000,
     );
+  });
+
+  it("updates a mode row after its budgets change and reports a failed reset", async () => {
+    const errors: string[] = [];
+    const modes = profileBudgetsList(() => {}, () => {}, writeGlobalConfigValue, (message) => errors.push(message));
+    modes.selectItem("thorough");
+    modes.handleInput("\r");
+    modes.handleInput("\r");
+    modes.handleInput("20000");
+    modes.handleInput("\r");
+    await settleActive(modes);
+    modes.handleInput("\x1b");
+    expect(modes.render(100).join("\n")).toMatch(/Thorough.*1 changed/);
+
+    const failing = profileBudgetsList(() => {}, () => {}, async () => {
+      throw new Error("settings.json is read-only");
+    }, (message) => errors.push(message));
+    failing.selectItem("thorough");
+    failing.handleInput("\r");
+    failing.handleInput("r");
+    await Bun.sleep(0);
+    expect(errors).toEqual(["settings.json is read-only"]);
   });
 });

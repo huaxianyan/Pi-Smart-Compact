@@ -51,7 +51,29 @@ export declare function trackFileOps(msgs: LlmMessage[], _tcIdx?: ToolCallIndex)
  */
 export declare function commandFailureEvidence(text: string, maxChars: number): string;
 export declare function isTransientToolDiagnostic(text: string): boolean;
+/**
+ * A retry's result resolves the original error only under the same failure
+ * classification that flagged it: not m.isError, and for command-executing
+ * tools no failure signal in the result text either — a retry that returns
+ * "isError: false" with `Command exited with code 1` in the body is still a
+ * failure, not a resolution. Shared by fresh extraction and the cached-delta
+ * reconciliation so both paths classify identically.
+ */
+export declare function resolvesErrorResult(result: LlmMessage | undefined, retry: FlatToolCall, tcIdx: ToolCallIndex): boolean;
 export declare function catalogErrors(msgs: LlmMessage[], _tcIdx?: ToolCallIndex): StructuredExtraction["errors"];
+/**
+ * Same-question decision entries collapse to their latest non-empty
+ * answer: input is chronological, the first occurrence keeps its position,
+ * and later answers replace earlier ones. Shared by fallback rendering,
+ * state merging, and verification so one active decision carries exactly one
+ * answer everywhere; a first-wins dedup alone would freeze the OLDEST answer
+ * of a re-asked question into the carried state.
+ */
+export declare function collapseDecisionsByQuestion<T extends {
+    summary: string;
+    userResponse?: string;
+}>(items: readonly T[]): T[];
+export declare function isHarnessInjectedText(text: string): boolean;
 export declare function extractDecisions(msgs: LlmMessage[], _tcIdx?: ToolCallIndex): StructuredExtraction["decisions"];
 export declare function isDiagnosticConstraintText(text: string): boolean;
 /**

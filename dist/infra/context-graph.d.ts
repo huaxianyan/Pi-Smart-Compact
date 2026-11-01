@@ -46,19 +46,50 @@ export declare function indexCompactionState(projectId: string, state: Compactio
 export declare function scheduleCompactionStateIndex(projectId: string, state: CompactionState): Promise<boolean>;
 /** Test seam; production drains in a microtask. */
 export declare function flushCompactionStateIndexes(): void;
-/** Resolve or supersede an explicit memory by stable fact identity within one project. */
-export declare function closeContextMemory(projectId: string, kind: SavedContextMemory["kind"], content: string, status: "resolved" | "superseded"): number;
+export interface ClosedContextMemory {
+    closed: number;
+    kind: string;
+    title: string;
+}
+/** Look up one explicit memory by its stable ref id, within one project. */
+export declare function getContextMemoryByRef(projectId: string, id: string): {
+    kind: string;
+    title: string;
+    content: string;
+    relatedPaths: string[];
+} | null;
+/**
+ * Resolve an explicit memory by its stable ref id within one project. The id
+ * is a hash of project, kind and fact key, so a ref from another project
+ * simply matches nothing here.
+ */
+export declare function closeContextMemoryByRef(projectId: string, id: string): ClosedContextMemory | null;
+/** Stable identity of an explicit memory; matches the id saveContextMemory assigns. */
+export declare function manualMemoryId(projectId: string, kind: SavedContextMemory["kind"], content: string): string;
 /** Save one explicit, user-confirmed project memory. */
 export declare function saveContextMemory(scope: ContextGraphScope, memory: Omit<SavedContextMemory, "id">): SavedContextMemory;
 /** Weighted project recall: lexical seeds + one-hop file relationships + scope/recency boosts. */
 export declare function recallContext(scope: ContextGraphScope, query: string, options?: ContextRecallOptions): ContextRecallResult[];
 export declare function formatRecallResults(results: ContextRecallResult[], maxChars?: number): string;
 export declare function getContextGraphStats(projectId: string): ContextGraphStats;
+/** Node counts by provenance for the /forget choice. */
+export interface ContextGraphMemoryCounts {
+    manual: number;
+    derived: number;
+    unknown: number;
+}
+export declare function getContextGraphMemoryCounts(projectId: string): ContextGraphMemoryCounts;
+/** What a scoped forget deletes. */
+export type ForgetGraphScope = "all" | "derived-only";
 /**
- * Permanently forget all graph memory for a project (#63): FTS copies,
- * edges, and nodes in one transaction. Drains any queued index writes
- * first so a scheduled compaction cannot resurrect the memory afterwards.
- * Compaction state files (restore data) and backups are left intact.
+ * Permanently forget graph memory for a project (#63). Drains any queued
+ * index writes first so a scheduled compaction cannot resurrect the memory
+ * afterwards. Compaction state files (restore data) and backups are left
+ * intact, and no other store (Mnemopi, Hindsight) is ever touched.
+ *
+ * `derived-only` deletes just the compaction-derived nodes (including their
+ * session/file infrastructure) with their FTS copies and edges; user-confirmed
+ * memories and unknown-provenance rows are preserved.
  */
-export declare function forgetProjectGraph(projectId: string): boolean;
+export declare function forgetProjectGraph(projectId: string, scope?: ForgetGraphScope): boolean;
 //# sourceMappingURL=context-graph.d.ts.map

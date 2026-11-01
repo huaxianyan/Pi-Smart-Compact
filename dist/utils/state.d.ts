@@ -17,7 +17,9 @@ export declare function saveCompactionState(projectId: string, state: Compaction
  * Load previous compaction state for delta computation.
  */
 export declare function loadCompactionState(projectId: string): CompactionState | null;
-export declare function loadScopedCompactionState(scope: Pick<ContinuityScope, "projectId" | "sessionId"> & Partial<Pick<ContinuityScope, "branchHeadId">>, branchEntryIds?: readonly string[]): CompactionState | null;
+export declare function loadScopedCompactionState(scope: Pick<ContinuityScope, "projectId" | "sessionId"> & Partial<Pick<ContinuityScope, "branchHeadId">>, branchEntryIds?: readonly string[], options?: {
+    readOnly?: boolean;
+}): CompactionState | null;
 export declare function applyLoopOverrides(loops: OpenLoop[], overrides: LoopOverride[]): OpenLoop[];
 export declare function upsertLoopOverride(overrides: LoopOverride[], loop: OpenLoop, patch: Partial<Omit<LoopOverride, "id" | "summaryKey">>): LoopOverride[];
 export declare function upsertContinuityOverride(overrides: ContinuityOverride[], kind: ContinuityOverride["kind"], text: string, patch: Pick<ContinuityOverride, "status"> & Partial<Pick<ContinuityOverride, "replacement">>): ContinuityOverride[];
@@ -33,12 +35,31 @@ export declare function upsertContinuityOverride(overrides: ContinuityOverride[]
  *
  * Only *later* user messages count, and only an explicit polarity flip on the
  * same concepts (the same check the gate uses) — a restatement does not retire.
+ * A newer required rule the gate reads as contradicting an older one retires it
+ * too: the gate can never accept both.
  */
 export declare function retireSupersededConstraints(constraints: ReadonlyArray<{
     text: string;
     index?: number;
+    confidence?: number;
 }>, msgs: LlmMessage[], overrides: ContinuityOverride[]): ContinuityOverride[];
 export declare function buildCompactionState(extraction: StructuredExtraction, openLoops: OpenLoop[], report: ExplorationReport | null, nextActions: string[], criticalContext: string[], loopOverrides?: LoopOverride[]): CompactionState;
+/**
+ * The continuity the post-state gate verifies against, computed before any
+ * summary exists. The state step merges the previous snapshot with the
+ * current extraction and bounds every collection, so a fact the previous
+ * snapshot carried can fall off a bound (constraints are capped at 30) or be
+ * retired by an override. Synthesis, the deterministic floor and the
+ * post-synthesis gate verify against this preview so a summary is built from,
+ * and held to, the same required evidence the final gate demands; a line that
+ * was required at one gate and merely present at the next is exactly what the
+ * contradiction scan reads as summary-authored text. Loops, next actions and
+ * critical context come from the summary itself and are not required
+ * evidence, so they are left empty here; `deletedFiles` keeps the merge's
+ * view (the state step additionally drops paths that exist on disk, which can
+ * only remove a requirement).
+ */
+export declare function previewMergedContinuity(extraction: StructuredExtraction, previous: CompactionState | null, factOverrides: readonly ContinuityOverride[]): CompactionState;
 /**
  * Conservative cross-compaction merge: neither absence nor free-form goal text
  * is evidence that a decision, constraint, error, or loop was resolved.

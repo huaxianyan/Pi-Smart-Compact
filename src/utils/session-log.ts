@@ -21,8 +21,8 @@ import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { extractText, TRUNCATE_RE } from "./extraction.ts";
 import type { LlmMessage, SessionMessageEntry } from "../types.ts";
-import { convertToLlm } from "@earendil-works/pi-coding-agent";
-import { asBranchMessage, contextMessageEntries } from "../infra/ai-messages.ts";
+import { convertToLlm, sessionEntryToContextMessages, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { asBranchMessage } from "../infra/ai-messages.ts";
 import {
   sessionsDir as sessionsDirPath,
   home as piHome,
@@ -151,12 +151,6 @@ const messageMapCache = new Map<
   }
 >();
 
-/** @internal Test-only: drop both module caches between cases. */
-export function __resetSessionLogCachesForTests(): void {
-  logPathCache.clear();
-  messageMapCache.clear();
-}
-
 function sessionDirectoryForCwd(cwd: string): string {
   const safeCwd = path
     .resolve(cwd)
@@ -266,7 +260,9 @@ function normalizeLogMessage(
  * Check if any message in the array has been truncated by pi-toolkit.
  */
 export function hasTruncatedMessages(msgs: LlmMessage[]): boolean {
-  return msgs.some((m) => TRUNCATE_RE.test(extractText(m.content)));
+  // Pi wraps branch/compaction summaries after their content; the marker can
+  // precede the closing tag rather than the end of the converted message.
+  return msgs.some((m) => TRUNCATE_RE.test(extractText(m.content).replace(/\s*<\/summary>\s*$/, "")));
 }
 
 /**
@@ -312,7 +308,7 @@ async function readOriginalMessageMap(
       remaining.delete(entry.id);
       const normalized = entry.type === "message" && entry.message
         ? normalizeLogMessage(entry.message, entry.timestamp)
-        : contextMessageEntries([entry])[0]?.message as LlmMessage | undefined;
+        : convertToLlm(sessionEntryToContextMessages(entry as SessionEntry))[0] as LlmMessage | undefined;
       if (normalized) map.set(entry.id, normalized);
       if (remaining.size === 0) break;
     }
@@ -378,7 +374,7 @@ export async function resolveCompactionMessages(
     ]) as LlmMessage[];
     if (!converted.length) continue;
     const logMsg = logMap.get(entry.id);
-    if (logMsg && !hasTruncatedMessages([logMsg])) {
+    if (!entry.contextEdited && hasTruncatedMessages(converted) && logMsg && !hasTruncatedMessages([logMsg])) {
       result.push({ entryId: entry.id, message: logMsg });
       restoredCount++;
     } else {
@@ -388,7 +384,7 @@ export async function resolveCompactionMessages(
   }
 
   if (restoredCount > 0) {
-    log.info(
+    log.debug(
       "Session log recovery: " +
         restoredCount +
         "/" +

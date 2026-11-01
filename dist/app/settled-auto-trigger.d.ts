@@ -1,5 +1,5 @@
 /** Proactive auto-compaction request that delegates all EESV work to Pi's host lifecycle. */
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { CompactOptions, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CompactConfig } from "../types.ts";
 export interface SettledAutoTrigger {
     request(ctx: ExtensionContext, config: CompactConfig): Promise<void>;
@@ -7,8 +7,12 @@ export interface SettledAutoTrigger {
     clear(sessionId: string): void;
 }
 export interface SettledAutoTriggerOptions {
+    /** A guarded request may return an idle-checked delivery recovery action for its watchdog. */
+    compact?: (ctx: ExtensionContext, options: CompactOptions) => (() => void) | void;
     now?: () => number;
     cooldownMs?: number;
+    /** Test seam; defaults to the hook budget cap plus the configured run limit. */
+    watchdogMs?: number;
 }
 /**
  * Keep proactive triggering deliberately thin: it requests a normal host

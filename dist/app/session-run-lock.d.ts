@@ -3,8 +3,6 @@ export interface SessionRunLock extends Cell<boolean> {
     acquire(sessionId: string): boolean;
     release(sessionId: string): void;
     isSessionActive(sessionId: string): boolean;
-    isRunning(sessionId: string): boolean;
-    activeCount(): number;
     size(): number;
 }
 /**

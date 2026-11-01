@@ -1,5 +1,1444 @@
 # Changelog
 
+## [Unreleased]
+
+## [10.7.3] - 2026-10-29
+
+The release owner explicitly approved this hotfix on npm `latest` under the
+version-specific stable exception in `docs/RELEASE.md`. No external canary
+cohort or live provider-quality/cache-recovery evaluation is available; this
+is not a telemetry `PROMOTE` result. The deterministic release gate and required
+PR CI remain mandatory. No stored data or stage-model routing is migrated.
+
+### Fixed
+
+- State synthesis output targets in prompts and separate the final summary target
+  from its hard completion ceiling. Single-pass and assembly receive bounded
+  completion headroom; model, provider and run-budget checks remain enforced.
+- Retry a length-truncated batch once with bounded output headroom even when
+  reasoning is already minimal. Preserve the final assembly call and continue to
+  reject malformed or truncated output instead of caching partial summaries.
+
+### Upgrade notes
+
+- Completion headroom can increase actual generated output, within the existing
+  run budgets. Persistent provider truncation still uses deterministic fallback.
+- The separate Claude OAuth adapter cache-prefix fix is not bundled in this
+  package. Updating Smart Compact alone does not fix transient adapter docs
+  injection; see [adapter PR #11](https://github.com/minzique/pi-claude-oauth-adapter/pull/11).
+
+## [10.7.2] - 2026-10-26
+
+The release owner requested an immediate stable hotfix on npm `latest` for the
+Hindsight notification flood on resume/reload. This version-specific exception
+under `docs/RELEASE.md` has no external canary or live provider-quality evidence;
+it is not a telemetry `PROMOTE` result. The deterministic gate and required
+PR CI remain mandatory. No server change or application data migration is needed.
+
+### Fixed
+
+- Summarize the older Hindsight receipt group once on session resume/reload,
+  instead of appending one completion message per historical record. Preserve
+  individual notifications for current-session saves, honest mixed outcomes,
+  compaction-safe delivery and suppression after shutdown or target changes.
+  Existing session history and remote memory are not rewritten.
+
+## [10.7.1] - 2026-10-25
+
+Dependency and toolchain maintenance patch. The release owner explicitly
+approved `10.7.1` as a stable release on npm `latest`, under the version-specific
+exception in `docs/RELEASE.md`. No external canary cohort or live
+provider-quality evaluation is available. This is not a telemetry `PROMOTE`
+result and does not waive the deterministic release gate or required PR CI.
+
+### Changed
+
+- Refresh the pinned development Pi SDK trio (`pi-ai`, `pi-coding-agent`,
+  `pi-tui`) to `1.4.0`; the supported host floor remains `0.87.1`.
+- Update the optional Mnemopi engine to `18.12.6`, Bun/runtime types and the
+  CI toolchain to `1.4.4`, and the development `undici` override to `8.12.3`.
+  Keep optional-component peers, readiness commands and setup docs aligned.
+- Update publisher npm to `12.2.1` and align the release checklist.
+- Update development TypeBox to `1.4.3`; retain its wildcard host peer and
+  external bundling. No Pi host or user memory store is automatically
+  upgraded by these project changes.
+- Document how to update an existing installation, refresh optional components
+  deliberately, and inspect raw npm registry metadata after publication.
+
+### Upgrade
+
+- Use `pi install npm:pi-smart-compact` for the stable channel, then restart Pi
+  after the current turn and compaction have finished. See the
+  [update guide](docs/guide.md#update-an-existing-installation).
+- Optional Mnemopi/Bun components are not automatically synchronized by an
+  extension update. Refresh only components you use with the commands in
+  [Optional components](README.md#optional-components).
+- Pi `0.87.1+` and Node.js `22.19+` remain supported. Commands, settings and
+  storage paths are unchanged; this patch requires no application data migration.
+
+## [10.7.0] - 2026-10-25
+
+The release owner requested `10.7.0` as a **stable release on npm `latest`**,
+instead of remaining on the preceding RC. This is the version-specific owner
+exception allowed by `docs/RELEASE.md`: no external canary cohort or live
+provider-quality evaluation is available. It is not a telemetry `PROMOTE`
+result and does not waive the deterministic release gate or required PR CI.
+
+- Ships the Smart Compact documentation and visual identity, compaction-safe
+  notification delivery, background Hindsight tracking, and memory-outcome fixes
+  described in `10.7.0-rc.1` below.
+- Only the version metadata and this release record differ from the RC; no
+  runtime behavior, defaults, supported host versions or data formats change.
+  No migration is required. The existing RC remains on npm `next`.
+
+## [10.7.0-rc.1] - 2026-10-25
+
+Release candidate on npm `next`, not a stable promotion. No external canary
+cohort or live provider-quality evaluation is claimed. The previous stable
+release remains on `latest`. Package, command, settings, paths and memory ref
+formats are unchanged; no migration is required.
+
+### Changed
+
+- Restore **Smart Compact** as the single product name across the README,
+  guides, package metadata, support and runtime messages. Historical release
+  notes keep their original names.
+- Replace the old header with an original illustrated workbench: session pages,
+  a binding press, a checked working folio and retrievable evidence. Add a
+  distinct bound-folio emblem, light/dark wordmarks and package artwork, all
+  reproducible from a self-contained vector master with `bun run brand`.
+- Reorganize the README and documentation index around reader tasks. Correct
+  stale cleanup limits, version guidance and `requireApproval` explanations;
+  add documentation-link and visual-asset regression checks.
+
+### Security
+
+- Override the development/CI install's `undici` to `8.12.2`, fixing the three
+  advisories reported against the Pi SDK's exact `8.10.2` dependency. Supported
+  Pi versions and runtime dependencies are unchanged. This override does not
+  patch a user's separately installed Pi host.
+
+### Fixed
+
+- Participating notification extensions can defer delivery throughout manual
+  summary preparation and native compaction using a session-bound FIFO queue.
+  Delivery waits for a safe post-compaction boundary instead of treating the
+  commit hook as idle; cancellation retains queued messages for the next natural
+  run or a successful retry. Silent-host watchdog recovery waits for real idle
+  and cannot release another request's scope. Failed senders no longer block
+  healthy notifications. A queue counter and cancellation guidance make the
+  waiting state visible, with an explicit in-memory/reload warning. This opt-in
+  protocol does not intercept unmodified senders or add disk durability.
+  On older supported Pi hosts, delivery waits for `turn_start` when the
+  pre-start hook still reports idle, preventing a nested prompt after cancellation.
+  Passive messages remain recorded for the next request without an extra wake.
+  See [message delivery](./docs/message-delivery.md).
+- Hindsight accepted/unknown submissions now receive bounded background status
+  tracking and non-waking completion/failure updates, instead of looking pending
+  until a later recall. Tracking resumes current-project receipts on session
+  start, respects compaction and target changes, and never submits new memories.
+  Late status checks cannot undo a concurrently resolved receipt.
+- Mnemopi lock guidance preserves an unknown write outcome instead of incorrectly
+  claiming nothing changed. Background memory-status notices cannot replace the
+  real task goal or become extracted constraints.
+
+## [10.6.2] - 2026-10-18
+
+- The release owner approved `10.6.2` as a stable patch release to `latest`
+  without a canary cohort. Evidence: the deterministic release gate
+  (source/scripts/test/bench typechecking, the full suite, the adversarial
+  gate, bench, build, packed-install audit, latest-Pi compatibility),
+  minimum-Pi (0.87.1) compatibility, `bun audit`, and per-pull-request CI on
+  the exact merged commits. Evidence limits: no external canary cohort and no
+  live session run of this version; recorded here as the owner exception
+  required by `docs/RELEASE.md`.
+
+### Fixed
+
+- The verification gate no longer reports a `semantic-contradiction` for a
+  self-consistent constraint whose only negation sits in a subordinate clause
+  such as "no need to check config" (issue #116, fix #117). Source polarity is
+  now derived from the clause containing the semantic anchor, and target
+  negation is scoped the same way. Known limit: a real negation sharing the
+  same punctuation-free clause as a "no need" phrase is skipped with it, and
+  polarity only counts within two tokens of the anchor — accepted as a
+  conservative trade-off. `DEBUG=smart-compact` now traces every
+  `semantic-contradiction` decision with the source/target fragment pair, the
+  anchor and the polarity flags, and `supersedesConstraint` is covered by
+  direct polarity tests.
+- A Hindsight save whose same-revision status check uncovers a definite
+  server-side failure now resubmits once with a fresh operation id in the same
+  call instead of reporting a failure the caller had to save again (#120).
+  Unknown outcomes keep the old operation id and stay idempotent.
+- Open Hindsight receipts saved against a server or bank that is no longer
+  the configured target drained nowhere: every recall filtered them out by
+  scope, so they could never refresh and held ledger capacity forever (#121).
+  A recall now drains them locally to `failed` after the same 24-hour window,
+  without contacting the old server. The recall footer "Prior saves" is
+  renamed to "Receipts refreshed" because it counts only the receipts that
+  call refreshed.
+
+## [10.6.1] - 2026-10-18
+
+- The release owner approved `10.6.1` as a stable patch release to `latest`
+  without a canary cohort. Context pressure after a trim or rewind now comes
+  from the last measured usage instead of Pi's text-only estimate, which can
+  change when automatic cleanup and compaction start. Evidence: replay of 7 real
+  rewinds (anchored figure 0.3–2% from the next measured input), the
+  deterministic release gate, and minimum-Pi (0.87.1) compatibility. Evidence
+  limits: no external canary cohort and no live session run of this version;
+  recorded here as the owner exception required by `docs/RELEASE.md`.
+
+### Changed
+
+- Optional component pin: `@oh-my-pi/pi-mnemopi` 18.12.1 (was 18.11.3). Its
+  source and types are unchanged; its own dependencies moved to 18.12.1. An
+  installed 18.11.3 keeps working, because Smart Compact checks that the
+  component is present, not its version. Readiness shows the 18.12.1 install
+  command. The README disk-use figure is corrected to 140 MB, measured on
+  macOS arm64 with the documented install command (both pins measure the same).
+
+### Fixed
+
+- Context pressure no longer drops after a trim or rewind and jumps back on the
+  next response. Pi's `getContextUsage()` stops using the measured usage once a
+  context edit follows it and counts only visible text (missing encrypted and
+  signed reasoning); on real rewinds it read 14–33% below what the provider
+  measured next. Smart Compact now keeps the last measured usage and applies
+  only the edits' estimated change (0.3–2% from the next measured input), with
+  Pi's own estimate as the floor. Pi's footer is unchanged.
+- Research rewind also archives large research outputs inside batches it keeps
+  (a batch stays when it contains an instruction read, an error or a
+  side-effecting call). Those outputs become recoverable markers; the report
+  states how many were archived and their size. Under signed Anthropic thinking
+  the markers are skipped when they would invalidate it.
+
+## [10.6.0] - 2026-10-17
+
+- The release owner approved `10.6.0` as a stable minor release to `latest`
+  without a canary cohort. Default cleanup behavior changes (trims consider
+  outputs from 2,048 characters; research rewind removes read-only shell
+  commands); Anthropic server-side context editing stays `off` by default. The
+  deterministic release gate covers the touched paths. Evidence limits: no
+  external canary cohort, no live provider-quality evidence, and Anthropic
+  `context_management` was not exercised against the live API; recorded here
+  as the owner exception required by `docs/RELEASE.md`.
+
+### Added
+
+- `providerContextEditing` (`Anthropic server cleanup`, default `"off"`): for
+  direct Anthropic sessions, adds Anthropic context editing to the session
+  model's requests. Old shell and read-only research tool results are cleared
+  server-side from the cleanup band; `"tool-results-and-thinking"` also clears
+  thinking older than the last 4 turns. The session history is unchanged and
+  signed thinking stays valid, which local trims cannot provide there.
+- Research rewind removes shell commands that only read: allowlisted commands
+  (`rg`, `grep`, `cat`, `sed -n` ranges, `git diff/log/show`, ...) without
+  variables, globs, substitutions, heredocs or file redirects. With signed
+  Anthropic thinking, a detour that only reads can therefore be rewound.
+
+### Changed
+
+- Trims consider tool outputs from 2,048 characters (previously 4,096).
+- Anchors, trims and rewinds report why nothing was cleaned up (no eligible
+  output, savings under the floor, or cooldown) with their numbers. A rewind
+  report states the characters removed and the tool batches kept; a refused
+  rewind names the kept batches.
+- The context-pressure hint no longer suggests an anchor when cleanup is
+  blocked. It states when a rewind can still apply.
+
+- Optional component pins: `@oh-my-pi/pi-mnemopi` 18.11.3 and `bun` 1.4.3.
+  The install commands in readiness messages and the README use these versions.
+  The Pi peer floor stays `>=0.87.1`. Development now runs against Pi 1.3.0.
+- The yield check accepts a verified summary up to 5% over the planned
+  post-compaction target (previously 1 token). Staged candidates are
+  revalidated with the same rule.
+- Constraint findings from the verification gate name their origin: `message
+  #N`, `continuity state`, `focus`, or `compaction note`.
+
+### Fixed
+
+- Synthetic compaction anchors no longer repeat the compaction summary in the
+  model context. The summary stays in the anchor's details for navigation.
+- `smart_navigation` anchor results no longer repeat the summary passed in the
+  call.
+- Heredoc bodies are no longer parsed as shell, so `x => y` in a heredoc no
+  longer records `y` as a modified file.
+- Smart Compact's own context-pressure hints are no longer summarized as open
+  loops.
+- Runs with deterministic fallback batches no longer credit the synthesis
+  route with the summary's quality score in metrics.
+- MiniMax-M3 compaction calls no longer end at `max_tokens` without text. A
+  `minimal` thinking level is now sent without thinking: MiniMax-M3 thinks only
+  when asked, and enabled thinking ignored `budget_tokens`. The `minimax`
+  output cap is raised from 4096 to 8192, so the 6000-token balanced summary
+  budget is no longer cut.
+- The verification gate no longer fails every run on evidence it can never
+  accept. The floor's own "Topics Covered" lines are not mined as rules. Of
+  two required rules the gate reads as contradicting, the newer one retires
+  the older. A steering focus can no longer be scored as contradicted.
+- `smart_compact` metrics reports now list recent issues. Gate failures
+  record their first findings there.
+- Summary-route, explore, batch, single-pass and assembly fallbacks now show
+  their literal cause in the TUI and in Recent issues, once per session per
+  cause. Verbose or debug mode is no longer needed.
+- `smart_compact`'s own failures are no longer carried into summaries as
+  unresolved session errors.
+- Only the Constraints section of a host compaction summary is mined for
+  rules. Its other sections are history.
+
+## [10.5.0] - 2026-10-14
+
+### Release approval
+
+- The release owner approved `10.5.0` as a stable minor release to `latest`
+  without a canary cohort. Defaults are unchanged (`requireApproval` stays
+  `true`), so with default settings every dialog behaves as in `10.4.0`; the
+  deterministic release gate covers the touched paths. Evidence limits: no
+  external canary cohort and no live provider-quality evidence; recorded here
+  as the owner exception required by `docs/RELEASE.md`.
+
+### Changed
+
+- `requireApproval: false` now also covers the anchor early-cleanup dialog and
+  the project-memory save/resolve confirmations, and permits headless memory
+  writes. It previously governed only the manual compaction apply screen.
+- The `smart_save_memory` tool description now reflects the `requireApproval`
+  setting at registration instead of always claiming a confirmation dialog.
+
+## [10.4.0] - 2026-10-11
+
+### Release approval
+
+- The release owner approved `10.4.0` as a stable minor release to `latest`.
+  Every new behavior is opt-in or conservative by default: with default
+  settings, trim timing, hold logic and safety guards behave as in `10.3.1`,
+  and no new model request is added. Publication is gated on this exact
+  candidate's deterministic release checks and required CI. Offline
+  regressions and recorded-session replay do not establish production
+  cache-hit savings or invoice-level cost; the cache-inactive route detector
+  and the readiness surfaces report observed cache behavior instead.
+
+### Added
+
+- **Configurable trim economics.** `autoTrimBreakEvenRequests` (default 24,
+  range 1–1000) and `autoTrimMinSavingChars` (default 16384, range 0–10000000)
+  replace the fixed automatic-trim limits. Planning now walks a tail-aware
+  candidate frontier — the rewritten cache suffix runs from the first edited
+  entry, so dropping an early low-value output can let the rest pay back its
+  cache rewrite — and the largest feasible batch by saved characters wins.
+  Plans without price data behave exactly as before.
+- **Fingerprint-aware pending lifetime.** `pendingFingerprintTtlMs` (default 0
+  = off, range 60000–3600000) lets a prepared summary serve past its
+  wall-clock lifetime, until the configured ceiling, while the live branch
+  still matches its captured prefix. Consume-site revalidation, append-only
+  growth accounting and all safety checks are unchanged.
+- **Provider cache-capability matrix.** Documented marker levels, selectable
+  TTLs, write/read price multipliers and routing keys per provider.
+  Anchor-cache rewriting skips routes documented to ignore message-level
+  markers (Moonshot's Anthropic-compatible top-level-only contract);
+  unverified providers keep current behavior.
+- **Cache-inactive route detection.** Three consecutive large requests with
+  zero cache reads flag a documented-caching route once in metrics and
+  readiness. Cache hits and write-dominant rebuilds reset the streak; unknown
+  providers without a documented discount are never flagged.
+- **Routing-key stamping (opt-in).** `promptCacheRoutingEnabled` (default
+  false) stamps a stable per-session `prompt_cache_key` on OpenAI-shaped
+  request payloads for engine-routing stickiness. Anthropic-shaped payloads,
+  existing keys and unresolved sessions are untouched.
+- **Long-context pricing visibility.** Context pressure surfaces report the
+  200K-token long-context pricing crossing for first-party Anthropic routes
+  on larger policy windows.
+- **Trim ROI.** `smart_context status` reports archived outputs, archived
+  characters and net saved characters derived from the branch's own trim
+  records; foreign-edited references drop out of the totals.
+- **Summary pseudo-anchors.** A committed Continuity compaction becomes a
+  synthetic anchor at the post-compaction leaf: a recall surface and pivot
+  target. In-session lists keep the newest two visible; name collisions get
+  numbered suffixes; cross-session lineage recall shows all of them.
+
+### Changed
+
+- Automatic trim planning is tail-aware (see above); with the default
+  settings and prices this only unblocks cleanup that previously stayed
+  blocked, and never trims more per boundary than the existing 32-output cap.
+
+## [10.3.1] - 2026-10-10
+
+### Release approval
+
+- The release owner explicitly approved `10.3.1` as a stable patch to `latest`
+  with a version-specific canary exception. Publication remains gated on this
+  exact candidate's deterministic release checks and required CI. No
+  version-specific applied-canary cohort or live provider-cache validation
+  exists; offline regressions and recorded-session replay do not establish
+  production cache-hit savings, invoice-level cost or a `PROMOTE` result.
+
+### Fixed
+
+- **Cache-aware early cleanup.** Reaching the early cleanup gate no longer
+  bypasses cache break-even checks for automatic trims. Below the compaction
+  gate, unknown prices or poor payback leave cached history unchanged in the
+  default pressure-only mode, without queuing a cold-cache rewrite. At the
+  compaction gate, safe cleanup can still prioritize freeing context over
+  cache economics. Profitable early cleanup, explicit manual/agent requests,
+  opt-in cold-cache timing, safety guards and preparation ordering remain
+  covered by regression tests. No new setting or model request is added.
+
+## [10.3.0] - 2026-10-06
+
+### Release approval
+
+- The release owner explicitly approved `10.3.0` as a stable release to `latest`
+  with a version-specific canary exception, not an RC. Publication remains
+  gated on the exact candidate's deterministic release checks and required CI.
+  No version-specific applied-canary cohort or live provider/signature test
+  exists. Offline regressions do not establish provider-side signature
+  acceptance, cache-hit savings, production quality or a `PROMOTE` result.
+
+### Added
+
+- **User-confirmed early anchors.** In pressure-only mode, an explicitly
+  user-requested anchor can ask Pi for one-time host confirmation, then save the
+  anchor and request one safe cleanup below pressure or with unknown usage.
+  No model argument grants permission and no setting changes. Rejection,
+  cancellation, stale session/history and revoked navigation/tool access fail
+  closed; confirmed cleanup still revalidates the originating batch, policy,
+  prepared work and signed thinking. Autonomous actions retain their timing
+  gates. No extra summarizer request, automatic full compaction or general
+  pressure bypass is added.
+
+### Fixed
+
+- **Model-aware cache lifetime.** Economic cleanup, the host cache ledger and
+  replay estimates now share Pi's model cache-lifetime metadata instead of
+  assuming five minutes for every provider. A 30-minute cache is not cold at
+  minute six. Unknown/invalid lifetimes cannot authorize a cold trim; pressure
+  and manual cleanup remain available. With no recorded retention choice the
+  longest advertised tier is used, and shorter tail writes do not retire an
+  observed 1h prefix. Model switches do not reuse the previous route's clock.
+  Ledger expiry/cause labels are explicitly estimates. Replay assumes no cache
+  reuse when lifetime metadata is unknown, without changing measured baseline
+  usage. Automatic cleanup thresholds and provider routes are unchanged.
+- **Research checkpoint/rewind semantics.** A bounded read-only investigation
+  can return to its checkpoint with one findings report even below pressure,
+  with unknown usage, or after pressure clears before commit. Automatic
+  cleanup and autonomous agent trim/anchor retain their pressure gates. Active checkpoints
+  cannot be silently replaced. Guidance distinguishes research return from
+  cleanup and points an active investigation at rewind rather than a new anchor.
+  Transient owned pressure hints inside the detour leave active context too;
+  checkpoint-prefix and unrelated extension messages are preserved.
+  Known read-only graph, diagnostic and web tools participate in recoverable
+  cleanup; source snippet first deliveries and explicit instruction reads stay
+  protected. Branch, permission, preparation, side-effect and signed-thinking
+  safeguards remain in force; no extra summarizer request or per-turn notice.
+
+## [10.2.1] - 2026-10-05
+
+### Release approval
+
+- The release owner approved `10.2.1` as a stable patch with a version-specific
+  canary exception. Publication remains gated on the deterministic checks for
+  this exact candidate. No version-specific applied-canary cohort or live
+  provider/signature test exists; offline regressions do not establish cache-hit
+  savings or a `PROMOTE` result.
+
+### Fixed
+
+- **Native compaction prefix.** Reuse Pi's complete system/tool transcript
+  instead of prepending the current prompt and loadout a second time. Legacy
+  histories without an initial system message retain their fallback. Real-adapter
+  regressions cover initial and repeated native compaction; provider-side
+  thinking-signature acceptance is not claimed by these offline tests.
+- **Context attention follows execution gates.** Do not recommend trimming over
+  prepared compaction. Recompute prompt-start guidance instead of parking stale
+  pressure in `nextTurn`, and describe settled, background and native-hook
+  strategies separately. History guidance remains available with navigation off;
+  checkpoints no longer promise that a later rewind will be safe. Anchor advice
+  does not guarantee cleanup or cache hits, and manual-mode compaction advice
+  distinguishes staging from applying. A real offline Pi lifecycle regression
+  covers compaction between a completed high-pressure turn and the next prompt.
+
+## [10.2.0] - 2026-10-05
+
+### Release approval
+
+- Minor release approved by the release owner after the deterministic gates
+  on the exact candidate. No version-specific applied-canary cohort or live
+  provider run exists for `10.2.0`; the feature is evidenced by unit tests
+  only. The note is gated by `Navigation guide` (`contextGuidanceEnabled`)
+  and turns off with it.
+
+### Added
+
+- **Context attention.** Context pressure used to reach the model only through
+  the human status line and `smart_context status` results, so the anchor,
+  checkpoint/rewind, trim and compaction tools sat idle until a person asked
+  for them. The extension now sends the model one short note when usage
+  enters the cleanup band and one more at the compaction band, naming only
+  the actions available right now: `smart_navigation anchor` (with the lazy
+  `smart_tools` load step when needed), `smart_context checkpoint`/`rewind`
+  and `trim` only when history edits are possible on this model (signed
+  Anthropic thinking blocks them), plus whether automatic compaction will
+  prepare. Mid-turn the note rides along with the next tool batch; at a turn
+  end a cleanup note waits for the next prompt and a compaction note is
+  skipped under auto-trigger because settled compaction runs first. One note
+  per band per session, re-armed once pressure clears; the note is a tail
+  message, so the cached prefix is untouched. Gated by `Navigation guide`
+  (`contextGuidanceEnabled`), tool loading and agent tool access.
+
+## [10.1.5] - 2026-10-05
+
+### Release approval
+
+- Patch release approved by the release owner after the deterministic gates
+  on the exact candidate. No version-specific applied-canary cohort or live
+  provider run exists for `10.1.5`; the fix is evidenced by unit tests and
+  offline replay of a recorded session's cache usage only.
+
+### Fixed
+
+- **Anchor prompt cache no longer evicts the rolling cache marker on OAuth
+  payloads.** pi-ai places `cache_control` on both OAuth system blocks (the
+  Claude Code identity line and the system prompt), so an Anthropic request
+  already carries four breakpoints: identity, system prompt, tools, rolling
+  tail. Adding the anchor marker made five, and the limit enforcement dropped
+  the first foreign message marker, which was the rolling tail. From the
+  first turn after an anchor every request then read only the prefix up to
+  the anchor and wrote nothing: `cacheWrite` stayed 0 while uncached input
+  grew turn by turn (a recorded session fell from 99% to 40% cache hits and
+  stayed there through a compaction that kept the anchor). The rolling tail
+  is now never an eviction candidate; the redundant identity marker goes
+  first, then the tools marker, both of which only cover prefixes of the
+  system-prompt marker. API-key payloads (one system marker) were unaffected.
+
+## [10.1.4] - 2026-10-02
+
+### Release approval
+
+- Patch release approved by the release owner after the deterministic gates
+  on the exact candidate. No version-specific applied-canary cohort or live
+  provider run exists for `10.1.4`; the fix is evidenced by unit tests and
+  offline replay of recorded sessions only.
+
+### Fixed
+
+- **Evidence lines no longer manufacture a file by cutting through a path.**
+  `summaryEvidenceLine` cut at the character limit wherever it fell; the
+  cross-compaction delta cuts loop summaries at 60 characters, and in a
+  recorded session that landed inside `.json`, so the summary carried
+  `OPENCLAW_HOME/.openclaw/openclaw.js`, a file that never existed. The
+  verifier flagged it as fabricated (repairable, so not blocking), but a
+  reader of the summary would have looked for it. The cut now backs off to
+  the last separator inside the split token (a true directory prefix) or to
+  the token start; shorter cuts remain prefixes of longer renderings, so
+  needle checks keep matching.
+
+## [10.1.3] - 2026-10-02
+
+### Release approval
+
+- Patch release approved by the release owner after the deterministic gates
+  on the exact candidate. No version-specific applied-canary cohort or live
+  provider run exists for `10.1.3`; the fix is evidenced by the state-step
+  regression test and offline replay of recorded sessions only.
+
+### Fixed
+
+- **The post-state gate no longer rejects a summary that passed the
+  post-synthesis gate.** Synthesis, the deterministic floor and the
+  post-synthesis gate verified against the previous snapshot while the
+  post-state gate verified against the merged state, whose collections are
+  bounded (constraints capped at 30, current facts first). A rule the previous
+  snapshot carried in an older form — "`lucky-phoenix` writes production code …
+  Avoid parallel writes" beside its current form ending "`lucky-phoenix` not
+  active" — was required at the first gate, so the floor rendered both; the
+  merge dropped the older form past the cap, so at the second gate it was no
+  longer required, and the current rule's negated anchor read it as a
+  summary-authored contradiction (80/100, not deterministically repairable,
+  session uncompactable; recorded three times on 10.1.2). The extract step
+  now previews the merge (`previewMergedContinuity`) and every earlier stage
+  verifies against that preview, so all gates demand the same evidence.
+  Offline replay of five recorded sessions: post-state 100/ok.
+
+## [10.1.2] - 2026-09-30
+
+### Release approval
+
+- Patch release approved by the release owner after the deterministic gates
+  on the exact candidate. No version-specific applied-canary cohort or live
+  provider run exists for `10.1.2`; the fix is evidenced by the test sweep
+  and offline replay of recorded sessions only.
+
+### Fixed
+
+- **The deterministic quality floor can no longer fail its own verification
+  gate.** The floor rendered every extracted constraint, including ones the
+  user had since released (`factOverrides`), stale implicit decisions, and its
+  own `[focus]`/`[note]` steering tags, while the verifier required a
+  different set; a released prohibition beside its live replacement, an error
+  message naming the action a rule forbids ("daemon restart failed" beside "Do
+  not restart the daemon"), or a steering focus that named that action, each
+  scored as a semantic contradiction, which deterministic repair cannot fix,
+  so every candidate was rejected. The floor now renders exactly the
+  verifier's required evidence (`collectVerificationEvidence`), written
+  whole; the contradiction scan treats required error lines and the steering
+  focus as polarity-free; and the floor's goal falls back to the continuity
+  goal. Summary-authored contradictions and two live rules of opposite
+  polarity still fail. A 512-combination sweep over the evidence sources
+  (retired rule, low-confidence inverse, non-live text, continuity-only rule
+  or goal, overlapping errors, implicit inverse decision, coverage overflow,
+  over-limit texts) asserts no non-repairable gap.
+- A user steering note longer than the constraint line limit is required,
+  rendered and repaired whole; a summary that cuts its trailing prohibition
+  is still rejected as altered evidence.
+- Display labels `Critical:`, `Open loop:`, `Unresolved error:` and
+  `Resolved error:` (plain or bold) are stripped before semantic comparison
+  like `Constraint:`/`Goal:`/`Decision:` already were.
+
+## [10.1.1] - 2026-09-30
+
+### Release approval
+
+- Patch release approved by the release owner after the deterministic gates
+  on the exact candidate. No version-specific applied-canary cohort or live
+  provider run exists for `10.1.1`; the verifier and extraction fixes are
+  evidenced by offline replay of recorded sessions only.
+
+### Fixed
+
+- Verification no longer rejects every candidate over its own required
+  evidence. Two recorded defects had the same shape: the deterministic floor
+  is built from exactly the lines the verifier demands, so a line the verifier
+  also scores as a defect leaves nothing that can pass, the session stays
+  uncompacted at 99% context, and Pi's own summarizer then hits its output
+  cap. First, the contradiction scan judged "Continue to avoid commits,
+  installation, or live daemon restart ... (`agm restart` deliberately
+  deferred)" as a positive "restart" beside "avoid live daemon restart":
+  negation near the anchor cannot see a coordinated list or a split clause.
+  Required evidence lines are now compared by sentence-level polarity, the
+  judgment the scan already applies to its source, so lines that agree are
+  not scored against each other; two required lines of opposite polarity
+  ("Do not publish stable" beside "Must publish stable now") remain a gap,
+  and summary-authored contradictions are never exempt. Second, the outcome
+  claim scan read a recorded bug ("message lost with no error surfaced") as
+  a success claim, repair removed it, and the next pass reported the
+  constraint missing. Exact renderings of required evidence are no longer
+  outcome claims; prose that echoes such a phrase still needs tool evidence.
+- Extraction ignores harness-injected `user` messages: pi-processes
+  `<process_event>` notifications, this extension's own continuity bridge
+  ledger, and agent-mesh envelopes. They were mined as the active goal, as
+  constraints (with `Constraint:` labels accumulating across generations),
+  decisions, and recent user requests. Continuity labels quoted by Pi's own
+  compaction summary are stripped before constraints are stored.
+
+### Changed
+
+- Automatic runs are capped at 300 seconds instead of 60, and
+  `autoTriggerTimeoutMs` defaults to 300,000 ms. Recorded MiniMax M3 runs took
+  26–45 s when they finished and ~40% of automatic attempts were cut at the
+  old 60 s cap, each leaving the session for Pi's own compactor.
+
+### Repository
+
+- Research reports and review findings are now local, ignored artifacts rather
+  than tracked repository content. Existing files stay on disk; Git history
+  and published release tags are unchanged.
+
+## [10.1.0] - 2026-09-29
+
+### Release approval
+
+- The release owner explicitly approved shipping `10.1.0` to stable without
+  a new version-specific applied-canary cohort or a `PROMOTE` result for this
+  version. Deterministic release gates and protected PR CI still apply. This
+  is an approval and evidence limit, not a claim that live quality or savings
+  were measured for `10.1.0`, and not a claim that final release checks have
+  already passed.
+
+### Added
+
+- Native tool rows for all six agent tools (`smart_tools`, `smart_context`,
+  `smart_navigation`, `smart_recall`, `smart_save_memory`, `smart_compact`):
+  compact status lines with honest states (queued, staged, dry-run, skipped,
+  pending, failed, cancelled are never shown as done/applied/saved), bounded
+  previews when collapsed, and the full original result text when expanded
+  via the configured native expansion key. Rows are call-time snapshots with
+  no polling.
+- Memory saves surface stable refs and titles: completed saves are marked
+  searchable, accepted saves are clearly not yet searchable, and uncertain
+  outcomes keep their operation identity. Recall shows prior-save receipt
+  states (completed/pending/failed/unknown) from the refresh it already runs,
+  and long recalled facts are marked as excerpts rather than complete memory.
+- Shared usage/pressure gates in `smart_context status`, navigation footer and TUI.
+- `task-eval --tool-loading=eager|lazy`, with tool schemas included in normalized
+  prefix comparisons. Offline results remain lifecycle evidence, not billing proof.
+- A documented cache-first configuration using idle compaction and initial
+  output offload, pressure-only cleanup and no speculative preparation.
+
+### Changed
+
+- Intermediate synthesis fallbacks stay in progress/metrics instead of warning
+  toasts; applied results still disclose fallback use. Prompt-cache attribution
+  stays in Readiness/metrics without duplicating Pi's cache-miss notice.
+- Pressure-first defaults: stable eager tool exposure, early batched cleanup,
+  and idle compaction at 80%. `contextPressureOnly: false` explicitly opts into
+  earlier economic/cold-cache cleanup. Human commands keep early-operation access.
+- Agent anchors now request one safe cleanup of their new region through the
+  existing trim controller. Prior anchor prefixes and recent work stay protected;
+  append-only anchors no longer discard paid background preparation.
+
+### Fixed
+
+- EESV preserves verbatim constraints and negative contractions, verifies explicit
+  question–answer pairs (including short and numeric choices), and keeps the
+  latest answered decision across fallback, verification and continuity state.
+  Repair cannot certify a wrong answer by merely appending the correct one.
+- Constraint retirement requires directed release evidence instead of treating
+  questions, criticism, reported behavior or denied permission as authorization.
+  Genuine user rules are no longer discarded merely for saying “do not bypass
+  verification.” Dialog results are paired by tool-call ID, and fresh/cached
+  extraction use consistent retry-result classification, including sibling retries.
+- Single-pass and final assembly reject known nonterminal or fence-truncated
+  responses before synthesis caching and use the existing deterministic fallback.
+- Credential availability checks honor run cancellation without holding the run
+  lock until auth finishes. Late auth results cannot resume the cancelled run.
+  The settled watchdog distinguishes a busy host from an idle missing result
+  instead of suggesting a conflicting manual retry while Pi is busy.
+- Exploration now leaves two calls for batch synthesis and final assembly,
+  including probe/direct/retry paths. Batch retries and queued workers also
+  preserve the final assembly call instead of exhausting the shared budget.
+- Continuity display labels (`Constraint:`, `Goal:`, `Decision:`) no longer make
+  an unchanged carried fact fail semantic verification. Actual contradictions
+  still block apply.
+- Automatic idle compaction now cools down after failed and timed-out attempts,
+  not only successful compactions, preventing repeated idle events from spending
+  another model budget. Manual compaction and Pi's own recovery stay available.
+
+- Client trim/rewind refuse edits that would invalidate retained signed Anthropic
+  thinking. Background candidates validate system/tool changes; configured
+  `pendingTtlMs` now governs both staged and background summaries. Loaded tools
+  remain stable across compaction.
+
+## [10.0.1] - 2026-09-28
+
+### Removed
+
+- Name-based startup scanning of unrelated extensions and instructions to
+  disable or uninstall them. An unrelated command name no longer produces a
+  guessed extension-conflict warning. Actual compaction lifecycle and
+  continuity-state checks remain in place.
+- Unrelated extension lists and compatibility-policing guidance from current
+  product documentation and release notes. Required and optional dependency
+  instructions, legacy session-data support and license attribution remain.
+
+## [10.0.0] - 2026-09-28
+
+**Pi Continuity**: the stable release of the context-hygiene and session-continuity
+rework. This release includes the work recorded in the unpublished
+`9.8.0-canary.*` candidates below; those candidates were never npm releases.
+
+### Upgrade from 9.x
+
+- Requires Pi **0.87.1+** and Node.js **22.19+**. The npm package remains
+  `pi-smart-compact`; commands, settings namespace and stored paths are not
+  renamed. See the [upgrade guide](./docs/guide.md#upgrade-from-9x).
+- A bare `/smart-compact` opens Home in the TUI. Use **Compact now** for the
+  interactive flow; print/RPC/SDK use still runs compaction directly. Apply a
+  reviewed summary with **A**, not Enter.
+- Agent tools load on demand through `smart_tools` by default. **Always
+  available** remains an explicit alternative; tool visibility is not permission
+  to bypass compaction or memory confirmation controls.
+- Mnemopi, its optional Bun runtime and image rendering are separate optional
+  components, not automatic downloads. Readiness shows the correct install
+  command. The default local graph does not require these components.
+- Claude subscription requests require the separate adapter with final-payload
+  normalization; the published adapter `0.2.2` alone does not cover nested calls
+  (upstream PR #10).
+
+### Added
+
+- Recoverable context hygiene: queued manual and automatic cleanup, large-output
+  offload, checkpoint/rewind, archived-output search and paged reads. Automatic
+  cleanup uses pressure, catalog-price break-even or a cold-cache boundary;
+  shell calls, failures, instructions and recent work retain their protections.
+- Session anchors, read-only recall across earlier sessions and branch navigation
+  with required carryover. Handoff opens a fresh session from recorded state
+  without a model call; lineage retrieval reaches parent-session evidence.
+- A five-choice Home screen, task-oriented settings, effective-state/readiness
+  diagnostics, storage reporting and a host prompt-cache ledger.
+- Exclusive project-memory backends: the local graph, an optional local Mnemopi
+  engine or an existing Hindsight server. Explicit saves need confirmation;
+  stable backend-bound refs support resolution without silent store fallback.
+- Opt-in background preparation, provider-native compaction, image snapshots
+  and an explicitly loaded RTK companion. EESV text remains the default;
+  experimental provider/image results are not proof of semantic fidelity or
+  billed savings.
+- Read-only session replay estimates and paired continuation/memory evaluation
+  tooling, with offline defaults and explicit approval for live provider use.
+- GitHub-release-driven npm Trusted Publishing. `publish.yml` uses OIDC instead
+  of a stored npm token, preserves the full `prepublishOnly` release gate and
+  maps stable releases to `latest`, prereleases to `next`.
+
+### Changed
+
+- Documentation now separates quick start, usage/reference and historical
+  evidence; long guides have clearer navigation and troubleshooting. Corrected
+  local-memory defaults, automatic-cleanup tool requirements, settings refresh
+  behavior and optional Hindsight authentication. Shipped pages link to
+  repository-only material without depending on excluded local files.
+- Pi Continuity has a unified return-path mark, outlined vector banner and
+  reproducible SVG/PNG exports. The catalog image URL is unchanged; the README
+  uses a font-independent PNG banner. Asset ownership and export instructions
+  are documented in `docs/identity.md` and `assets/README.md`.
+- Contributor and issue templates reflect current tools, privacy boundaries
+  and package contents. Repository paths and runtime identifiers are unchanged.
+- Dated reports and pilot data moved to `docs/reports/` and, like the review
+  findings, are no longer packed into the npm package (about 150 KB less per
+  install; `docs/README.md` still indexes them).
+- `replay-eval` gained `--since=DAYS` and `--progress`, and a session file that
+  changes while it is being read (a live session) is now skipped and counted
+  instead of failing the whole run.
+
+### Fixed
+
+- Context edits, queued navigation and staged compactions revalidate branch,
+  session, model, configuration and cancellation state before applying. Rewind
+  and pivot change context, never files or external side effects.
+- Archived-output integrity, lineage authorization and target-bound memory refs
+  reject tampered or mismatched evidence instead of silently reconstructing it.
+- Provider calls use the requesting Pi session's model runtime, preserving
+  registered provider overrides. Native replay requires matching provider state
+  and the exact host summary wrapper.
+
+### Release decision
+
+The release owner explicitly approved **10.0.0 stable** instead of another
+canary. The available canary report was `HOLD`, with no completed candidate
+cohort; this is a version-specific release-owner exception, not a `PROMOTE`
+result. Deterministic checks and offline pilots do not establish live-model
+quality, billed savings or a completed production observation window.
+
+## [9.8.0-canary.8] - 2026-09-28
+
+Integration candidate for the maintainer's daily Pi (real-session data
+collection on the cold-cache trim and the host cache ledger); not published.
+Offline receipts, CI and the release audit are not a live evaluation or a
+canary promotion.
+
+### Changed
+
+- The Mnemopi engine (`@oh-my-pi/pi-mnemopi`), its `bun` runtime and the
+  image-snapshot renderer (`@resvg/resvg-js`) are no longer installed with
+  the extension. They are optional peer dependencies for features that are
+  off by default; a plain install used to download about 260 MB for them
+  (macOS arm64). When a selected feature lacks its component, Readiness,
+  the effective-state report and the failure notices show the exact
+  `npm install … --prefix <Pi install root> --legacy-peer-deps` command
+  (see README "Optional components"). The release audit now installs the
+  components the user's way into a Pi-style npm root and proves they survive
+  a Pi update.
+
+### Added
+
+- Automatic cleanup held for a cold prompt cache now waits while Pi's cache
+  warming keeps the entry alive, and stops that warming once a refresh no
+  longer pays by Pi's $0.05 rule, counted net of the cache write the held
+  trim avoids; Home notes the stop. The host cache ledger and
+  `replay-eval` count a `cache_warm` refresh as keeping the prefix alive.
+- At session start a notice names loaded extensions known to compact or edit
+  the same history (pi-openai-toolkit, context-fold, pi-fold,
+  pi-context-prune, pi-dcp, pi-toolkit's `context` tool), matched by exact
+  command/tool names and whole package path segments, and advises keeping
+  only one loaded. Nothing is blocked; unknown extensions are not detected.
+- `/smart-compact handoff [-- note]` opens a new Pi session seeded with one
+  anchor message assembled from recorded state: the note, the latest branch
+  anchor, the continuity ledger (last Continuity compaction, else the saved
+  branch state), `pinPaths`, a memory recall through the selected store, and
+  pointers back to the parent session. No model call writes it; it is
+  scrubbed and capped at 16,000 characters, cutting recall first. Nothing
+  opens when there is no anchor, ledger or note.
+- Home → History & recovery → **Hand off to a new session**: write a note,
+  review the seed (size, sources, full text), then confirm; the selection
+  starts on Go back. `/smart-compact handoff dry-run [-- note]` shows the seed
+  and opens nothing (TUI preview, a message in other UI modes).
+- `smart_context` `status`/`search`/`read` take `scope: "lineage"`: they also
+  reach archived output of the sessions this one was handed off or forked
+  from, read-only, following `parentSession` up to 3 levels (files up to
+  64 MiB; cycles and missing files end the walk). Parent sources carry
+  `session` and `depth`; each parent's own archive records authorize and
+  verify its outputs. The default `session` scope is unchanged. The handoff
+  seed now points at it instead of `/resume`.
+- Automatic cleanup (`contextHygieneEnabled`) no longer waits only for
+  context pressure. A ready batch commits at a turn boundary under pressure,
+  or when the model's catalog prices say it pays back its prompt-cache rewrite
+  within 24 requests (`N* = ((w - r) × T) / (r × X)`); otherwise it is held
+  and sent with the first request after the cache expired, then committed
+  when that turn completes. Trim entries record the cause (`pressure`,
+  `break-even`, `cold`, `manual`, `agent`); `smart_context` `status` reports a
+  held batch as `deferredTrim`. The rule uses catalog price ratios and token
+  estimates, not measured cache behavior.
+- `bun run replay-eval --sessions=<dir|file>` replays recorded sessions read-only
+  and estimates prompt tokens and catalog-priced cost per request under the
+  `none`, `pressure` and `timed-<N>` trim policies (`--break-even`,
+  `--rebuild-min`, `--limit`, `--json`), next to the recorded usage. Replay
+  estimates only; see `docs/evaluation.md`.
+- The compaction result returned to Pi carries the provider-reported usage of
+  the applied run (EESV stage calls or the provider-native compaction
+  request), priced at each route model's catalog rates, so Pi's session
+  totals and cost include the extension's own work. Cached or estimated runs
+  contribute nothing rather than a guess.
+- A foreign compaction (another extension's, or Pi's built-in one) no longer
+  passes silently: a prepared Continuity summary it displaces is recorded as
+  `discarded` (`native-apply:foreign`) in the metrics log and a once-per-
+  session notice names the winner; Pi's built-in compaction is reported only
+  while automatic compaction is on.
+- `maxContextTokens` (default `0`, off) makes automatic trigger percentages
+  (`minContextPercent`, the background preparation window and the automatic
+  admission gate) count against `min(model window, maxContextTokens)`. Model
+  requests, summary sizing and hard headroom checks keep the real window.
+  Settings › Compaction has a row for it, and Home warns when a model window
+  above 400k tokens is uncapped while automatic compaction is on.
+- A session-local host prompt-cache ledger records the provider-reported
+  input, cache-read and cache-write tokens of Pi's own requests and classifies
+  cache rebuilds (uncached ≥ 16,384 tokens and ≥ half the prompt) as following
+  a committed Continuity edit (trim/rewind, pivot, compaction), idle expiry of
+  the cache lifetime, or foreign. Home › Readiness & details shows the tallies;
+  the third foreign rebuild in a session shows one notice. `smart_context` and
+  navigation gain an `onContextEdit` hook that fires only once an edit is on
+  the branch.
+- Trimming also archives old, successful shell (`bash`) output of 4,096+
+  characters. The shell call itself stays in context; errored results and
+  turns that mix shell with writes or unknown tools stay whole. Rewind still
+  keeps shell exchanges.
+- Old `smart_context` `read` pages are trimmable like read-only output; the
+  marker points at the original source ID so the agent re-reads the source.
+  Other `smart_context` results (`status`, `search`, `plan`, `trim`, `rewind`)
+  are never trimmed.
+- Trim and rewind records store a SHA-256 and length per archived output
+  (`archives: [{ id, sha256, chars }]`). `smart_context` `read`/`search`
+  refuse text that no longer matches its record, `status` sources show
+  `hashed`, and a rewind withholds mismatched outputs from recovery and says
+  how many. Records from earlier versions have no hash and read as before.
+
+### Changed
+
+- Home's `Clean up tool output` row shows `held for a cold cache` with the
+  estimated savings and pay-back when automatic cleanup is holding a batch;
+  selecting it applies the batch at the next completed turn. Settings and
+  profile texts for automatic cleanup now name all three commit causes; the
+  `handoff` "nothing to hand off" notice says how to record something.
+- Trim markers are now a deterministic digest of at most 6 lines and 400
+  characters: the retrieval line, the call's subject (read path, first shell
+  command line, or search pattern), the first non-empty output line, and up
+  to three error/failure/warning lines, each whitespace-normalized and cut to
+  100 characters.
+- Trimming archives superseded output first: read-only results whose path a
+  later call writes, edits or deletes (including literal `bash` targets),
+  then results whose path a later plain `read` without `offset`/`limit`
+  shows again in full, then the rest, each in session order, within the same
+  32-output cap. Their markers add `(superseded: edited later)` or
+  `(superseded: read again in full later)` to the
+  subject line. Paths match after `path.normalize` only. Eligibility is
+  unchanged; `smart_context` `plan` reports `superseded`.
+
+### Fixed
+
+- Sessions with automatic compaction on `background` and `contextHygieneEnabled`
+  off trimmed at break-even or on a cold cache since the timing rule landed;
+  the background strategy again trims only under pressure, as before.
+  Break-even and cold-cache cleanup need `contextHygieneEnabled`. This also
+  restored the offline evaluator's `no-compaction` baseline under
+  `--background-prep` (it had started trimming, and Pi's idle cache warming
+  stopped at every rebuilt boundary).
+- A held automatic trim is applied through Pi's `context_with_system` event,
+  not `context`: a changed `context` result makes Pi collapse
+  mid-conversation system messages into one head, so the cold request and
+  the committed transcript would differ. Verified against the checkout's
+  `ExtensionRunner.emitContext`.
+- The offline task evaluator (`release:audit`) no longer reaches the network
+  when `rg` is missing: offline arms set `PI_OFFLINE=1` and fail before the
+  first round without ripgrep; CI installs it. The offline guard now names the
+  first blocked request and its caller.
+- A trim that a cold request already carried was dropped at the end of an
+  aborted or failed turn, at a boundary busy with preparation or compaction,
+  and after a queued manual change: Pi records the interrupted response with a
+  fresh timestamp, so the next request looked warm, went out untrimmed and
+  rewrote the prefix the interrupted request had just cached. The carried trim
+  now stays in every request until a boundary commits it, a newer context
+  rewrite invalidates it, or the session changes. Turning automatic cleanup off
+  forgets a held or carried trim.
+- The cold-cache check took the prompt-cache lifetime from the last response
+  only; a fully cached or interrupted response after a 1-hour write made a
+  1-hour prefix look 5 minutes old, so the trim could be applied while the
+  entry was still warm. The lifetime now comes from the last response that
+  wrote cache, as the host cache ledger keeps it.
+- Automatic trims need a reachable `smart_context`, as artifact offload does:
+  digests point the model at that tool, so with agent tools off nothing is
+  trimmed automatically. `Readiness & details` says so on the
+  `Context hygiene` line. Manual cleanup from Home is unaffected.
+- A queued context change (manual cleanup, agent checkpoint, rewind or trim)
+  that met an aborted or failed turn vanished silently; it now leaves the usual
+  "Context operation not applied" note.
+- A committed rewind was counted as a `trim` in the host prompt-cache ledger;
+  it is now `rewind`.
+- Review reports under `docs/findings` stay out of the npm package.
+- Settings opened from Home now apply limits, pinned paths, backup
+  directory, Hindsight and model rows to the running session at once, as the
+  standalone `/smart-compact settings` screen does; they used to be saved
+  only.
+- Home → Settings → How it runs → **This branch** opens the branch-only
+  settings again; Enter on it did nothing.
+- The Home header reads `Automatic: prepare in background` for the
+  `background` strategy instead of `when idle`.
+- When the readiness check fails, Home's `Status & help` row shows
+  `unavailable` with the first line of the error instead of `checking`
+  forever.
+- Mode budget rows (Fast, Balanced, Thorough) update their "N changed" count
+  after you edit a budget, and a failed budget or Hindsight reset reports the
+  error instead of failing silently.
+- `/smart-compact dashboard` outside the TUI says it needs TUI mode and
+  points to `/smart-compact metrics` and the HTML dashboard path; it used to
+  do nothing.
+- `/smart-compact storage` and `/smart-compact metrics` without a UI print
+  their report: to stdout in print mode, to stderr in JSON/SDK mode (RPC
+  keeps the notice). Both were silent in JSON mode and `metrics` in print
+  mode.
+- Metrics p95 latency uses the nearest rank; with 20 runs it was the slowest
+  run.
+- The metrics dashboard pages to the terminal height (at most 24 lines), so
+  the position line and key hints stay visible in short terminals.
+- `/smart-compact storage` no longer marks the scan incomplete (and every
+  owner `unknown`) when a session file holds a line longer than 1 MiB, such
+  as a large tool result.
+- An unreadable Hindsight receipt ledger is no longer read as "no pending
+  saves": resolve refuses to delete and saves are refused, both naming the
+  ledger file, which is left untouched for repair.
+- Mnemopi readiness reports `ready` when the package and a supported Bun are
+  found (worker and database still unverified); the package check no longer
+  fails for an installed package.
+- A settled or background auto-trigger whose host never reports back releases
+  the session after the hook budget plus `autoTriggerTimeoutMs` and reports
+  it once, so later triggers can run.
+- A staged candidate confirmed for another session is discarded and recorded
+  instead of lingering and later surfacing as missing local records.
+- Anthropic native compaction reads the top-level usage when the response has
+  an empty `iterations` list; it used to record zero tokens.
+- Stored native compaction state larger than 1,024 items or 4 MiB is rejected
+  instead of being replayed.
+- Native compaction metrics classify tool runs like EESV runs and record the
+  run's latency and provider-cache hit rate instead of zeros; native dry runs
+  and declined native runs now appear in metrics.
+- A failed apply (native or EESV) clears only its own staged candidate, and
+  the once-per-route native skip notice no longer repeats for every session
+  after 500 sessions.
+- A resolved or superseded project-memory fact could come back as active in a
+  project with more than 2,000 facts: pruning removed the resolved markers
+  first, so a later compaction that still saw the old text re-added it. Active
+  facts and resolved markers now have separate 2,000-entry limits, each
+  trimmed oldest first.
+- Resolved saved project memories count toward the resolved-marker limit
+  instead of piling up until an explicit forget; active saved memories are
+  still never trimmed.
+- Deleting project-memory facts no longer scans every graph edge: edge
+  targets are indexed, including in existing memory databases.
+- The native continuity handoff no longer stops working for a directory after
+  a crash while staging: a lock whose process is gone, or which is older than
+  one minute, is taken over. Replacing a handoff keeps the previous one until
+  the new one is written, and a handoff recorded for another scope is left in
+  place instead of being deleted.
+- Native compaction now counts against the run's output budget and records
+  its real prompt and output tokens in the run budget (it used to spend
+  nothing); an exhausted call or output budget fails the native attempt
+  without sending a request.
+- Native compaction's after-compaction estimate counts the system prompt and
+  tool schemas as fixed context, like the smart summary planner, instead of
+  shrinking them with the compacted messages; the estimate was optimistic.
+- Native compaction now prepares the same scrubbed conversation backup as the
+  smart summary (`backupEnabled`), written after Pi confirms the compaction;
+  it used to write none.
+- Hindsight: a resolve marks only the receipts it checked as deleted, so a
+  save that lands during the delete stays open; a completed save or delete
+  whose local receipt cannot be updated (e.g. ledger locked) is reported
+  (`unknown`, or a warning on delete) instead of failing the tool, and the
+  next `smart_recall` reconciles it.
+- Hindsight status checks use the operation id the server acknowledged when
+  it differs from the one sent; they used to stay `unknown` forever.
+- Hindsight: `smart_recall` marks a receipt `failed` (`not_found`) once the
+  server has reported its operation missing for 24 hours, so a full receipt
+  ledger drains; the ledger-full message names the ledger file and no longer
+  claims `smart_recall` alone clears it.
+- Hindsight recall evidence turns line breaks and other control characters
+  from the server into spaces, so remote text cannot forge `Ref:` or
+  provenance lines.
+
+## [9.8.0-canary.7] - 2026-09-27
+
+Local-only integration candidate; not published or installed in daily Pi.
+Offline receipts, a real-terminal walkthrough and loopback proofs are not a
+live evaluation or a production canary promotion.
+
+### Added
+
+- Session navigation, owned by Pi Continuity: named anchors with summaries,
+  read-only search of anchors from earlier sessions, and returning to an
+  anchor on a new branch with a required carryover. Home → History & recovery
+  → Session navigation, `/smart-compact context`, and the `smart_navigation`
+  agent tool (`view`, `recall`, `anchor`, `pivot`). Anchors recorded earlier by
+  pi-toolkit's `context` tool stay readable. The Anthropic anchor prompt-cache
+  marker and the footer anchor status are included.
+- On-demand agent tools: with `toolLoading: "lazy"` (default) the agent sees
+  only the `smart_tools` loader (about 400 bytes of tool JSON in a stock Pi
+  request) and loads the `navigation`, `history`, `memory` or `compaction`
+  group when needed; loaded groups reset at session start, branch change and
+  compaction. `eager` shows every permitted tool; `off` shows none while Home
+  and the navigation panel keep working. The context-management guide is read
+  only on request through `smart_tools` and is never injected into the system
+  prompt; Pi does not list it as a skill.
+- Settings → Agent tools & navigation: `toolLoading`,
+  `contextNavigationEnabled`, `contextRecallEnabled`, `contextPivotEnabled`,
+  `contextAnchorCacheEnabled`, `contextAnchorStatusEnabled` and
+  `contextGuidanceEnabled`. Existing settings are preserved; turning
+  navigation off keeps recorded anchors and the other switches.
+
+### Changed
+
+- Requests the extension makes itself (EESV stages and provider-native
+  compaction) go through the requesting session's public model runtime
+  instead of pi-ai's standalone completers, so request-time auth and provider
+  overrides registered by other extensions apply. Explicit caller API keys and
+  headers are no longer sent, so stored OAuth is never bypassed; stage auth is
+  an availability preflight only.
+- Removed the pi-toolkit cooperation contracts: the
+  `pi-toolkit:adapt-provider-request` channel, the `pi-toolkit:context-pivot`
+  pause, the `piToolkit.context.thinningEnabled` fixture and the task-eval
+  `--toolkit` option (every arm now runs with `toolLoading: "eager"`).
+  pi-toolkit's auto-context must not be loaded together with this extension.
+  Claude subscription routes need the separate `pi-claude-oauth-adapter`; the
+  published `0.2.2` normalizes the request body only for Pi's own turns, so a
+  build that normalizes the final payload inside its provider is required for
+  parity on nested requests. Such a patch was prepared and verified against
+  `0.2.2` in isolation; it is not part of this package.
+- Tool guidance for `smart_recall`, `smart_save_memory` and `smart_compact`
+  moved from Pi's system-prompt tool metadata into the tool descriptions, so
+  loading a group on demand does not rewrite the system prompt.
+- The session, context-compat and native-host pilots run without a pi-toolkit
+  checkout; the native-host pilot loads the standalone adapter from
+  `PSC_CLAUDE_OAUTH_EXTENSION` and classifies its quota preflight as a
+  non-model request.
+- LICENSE credits the pi-toolkit auto-context origin (MIT, Ersin Tarhan, with
+  the pi-provider-kimi-code and pi-better-messages-cache notices).
+
+### Fixed
+
+- A pivot queued by the agent was silently dropped when a threshold
+  compaction started in the same idle window; compaction now pauses while a
+  pivot is queued or applying.
+- Returning to a human-made anchor kept the carryover but dropped the anchor
+  and its summary; anchors are now labelled natively so the anchor text stays
+  in context.
+- Artifact offload never ran in the default on-demand mode because
+  `smart_context` was not yet active; offload now runs while the agent can
+  reach `smart_context` (active or loadable) and stops with agent tools `off`
+  or `smart_context` hidden with `/tools`.
+- The "Context OK" notice no longer refers to pi-toolkit.
+
+## [9.8.0-canary.6] - 2026-09-27
+
+Local-only corrected evaluation candidate; not published or installed in daily
+Pi. Canary.5 was rejected before paid calls: a synthetic raw `KERN_PROCARGS2`
+probe retrieved another host process environment despite native sandbox rules.
+Its frozen archives remain unchanged.
+
+### Fixed
+
+- Replace native macOS tool isolation with fresh, networkless Linux containers.
+  Mount only the synthetic fixture and owned HOME; keep the image read-only,
+  drop capabilities, limit resources, and isolate host/sibling process tables.
+  Resolve the prebuilt runtime image to an immutable ID before execution.
+- Create each container before starting it, then remove the complete container
+  on exit, cancellation or timeout, including detached children. File reads
+  remain byte-preserving and bounded; startup probes fail before provider use.
+- Preserve evaluator environment/transport restoration even when sandbox
+  teardown fails. A local Docker daemon and separately built runtime image
+  are evaluation prerequisites, not extension runtime dependencies.
+
+## [9.8.0-canary.5] - 2026-09-27
+
+Local-only evaluation-hardening candidate, retaining the canary.4 UI and
+identity changes. Not published or installed in daily Pi. A bounded synthetic
+live pilot is not production canary promotion evidence.
+
+### Fixed
+
+- Load only the selected custom provider/model and frozen credential in task
+  evaluation; API keys no longer fail an OAuth-only expiry check. Credential
+  commands, ambient templates, refresh and mutation are refused.
+- Cap main responses explicitly; refuse output reservations that do not fit
+  instead of silently shrinking a later response. Count cumulative Anthropic
+  stream usage once, retain missing values as unknown, and snapshot per-arm
+  request classes, actual usage and latency. JSON mode now emits its report.
+- Observe live host tool results and the context actually sent at each probe,
+  rather than offline-only counters or pre-compaction branch history. An
+  archive lookup question alone no longer counts as delivery of its answer.
+- Sandbox live model tools, fixture reads and oracle processes with a clean
+  child environment and native macOS filesystem/network restrictions. Startup
+  denial checks fail closed; unsupported platforms cannot enter live mode.
+
+## [9.8.0-canary.4] - 2026-09-27
+
+Local-only UI, identity and settings candidate; not published or installed in
+daily Pi. Live task comparison and production canary promotion are separate
+checks; offline validation alone does not satisfy the promotion gates.
+
+### Changed
+
+- Make Mode the only user-facing compaction selector. Advanced Mode budgets
+  retain existing Fast/aggressive, Balanced/balanced and Thorough/light values;
+  editing or resetting Mode does not rewrite legacy profiles or budget overrides.
+- Run the adversarial gate on every CI pull request and push to main, matching
+  the local release checks. Latest-Pi compatibility remains scheduled/manual.
+
+- Adopt **Pi Continuity** as the product identity for context hygiene and session
+  continuity. The npm package, repository, commands, tools, settings namespace
+  and stored data identifiers remain unchanged; this is not a package migration.
+- Replace the compaction-only artwork with a generated PNG continuity mark and
+  self-contained SVG banner, retaining the established asset URLs.
+- Restructure the README as an entry point, with separate user, configuration,
+  architecture and evaluation references. Mark historical experiments as dated
+  evidence and distinguish current unpublished behavior from the npm release.
+
+- Simplified Home to five task-oriented choices, with effective context and
+  automatic/agent status above the list. Settings, recovery and diagnostics
+  remain accessible without competing with the primary compact action.
+- Replaced technical setting labels with readable choices while preserving
+  defaults, persisted values, branch overrides and experimental confirmation.
+  Compact-picker cancellation now returns to Home.
+- Compact and review screens show the decision first, with technical details
+  under `D`. Capacity refusals explain the next step; provider fallback and
+  verification warnings remain visible.
+
+### Fixed
+
+- Normalize legacy profile-only `aggressive` settings to Fast on load, while
+  preserving explicit modes, custom budgets and the stored settings file.
+- Result/help scrolling and narrow-terminal controls: summaries can be read to
+  the end, selected truncated settings are disclosed in full, and compact
+  actions remain visible when planner details need paging.
+- Review no longer describes unresolved verification gaps as already patched.
+  Approval still requires `A`; `Enter` does not apply a candidate.
+
+## [9.8.0-canary.3] - 2026-09-25
+
+Local-only reliability candidate; not published or installed in daily Pi.
+Existing frozen candidates and user settings remain unchanged. Offline proof
+does not establish live provider reliability or satisfy canary promotion gates.
+
+### Fixed
+
+- Deterministic fallback keeps each constraint’s full 300-character extraction
+  bound and omits redundant category labels. The previous 200-character
+  decorated preview could contradict its own source, causing repeated
+  verification failures regardless of model. The verifier remains unchanged
+  and still rejects genuinely contradictory output.
+- Run-wide cancellation is no longer treated as a recoverable generation
+  failure: it stops subsequent synthesis, verification, staging and apply.
+  Timed-out previews cannot report success; host cancellation is recorded
+  once as neutral `cancelled`, separately from `timeout`. Manual deadline
+  notices no longer promise an automatic native fallback. Latency defaults
+  and configured budgets are unchanged.
+- Automatic behavior preset explicitly selects the existing `settled` trigger,
+  which works with Pi auto-compaction off. Native-hook readiness states its
+  host dependency and unknown host setting; threshold labels distinguish a
+  replacement gate from actual scheduling. Existing disabled/native-hook
+  configurations are not silently changed.
+
+### Changed
+
+- Ship only runtime JavaScript entries (`index`, `rtk`, `mnemopi-worker`) and
+  declarations. Evaluation/report commands run source scripts from a checkout;
+  installed `dist/*-eval.js` and `dist/telemetry-report.js` CLI paths are removed.
+  Runtime context hygiene, continuity, recovery and memory features remain.
+- Replace source/build-string and wording-only assertions with pipeline
+  cancellation regressions, installed-package checks and real Pi lifecycle
+  proof.
+
+## [9.8.0-canary.2] - 2026-09-25
+
+Local-only candidate; not published. Prepared for the fresh canary package
+paired with the partner pi-toolkit build. The deterministic release gate
+passed locally (four-project typecheck, full test suite, adversarial gate,
+benchmarks, build, installed-package audit with package-owned Bun, and Pi
+0.87.1/latest compatibility), but offline validation never replaces the
+required live production canary evidence.
+
+### Added
+
+- `/smart-compact` Home: a bare TUI invocation opens one keyboard screen with
+  Compact now (tokens/percent or the blocking reason), Queue local cleanup,
+  Setup & readiness, How it runs, Output, Models, Memory, History, Metrics and
+  Advanced settings. Behavior presets (Manual, Agent can compact, Local cleanup
+  only, Automatic cleanup + compaction) are derived from the exact persisted
+  flags, apply as one atomic settings patch, keep branch overrides visibly
+  separate, and leave the unchanged built-in default labeled as the default.
+  Output presets mark Visual hybrid as explicit opt-in and Native as
+  experimental with a second confirming Enter, showing why a preset cannot
+  apply for the current chat model.
+- `/smart-compact trim` and the Home cleanup row queue the same zero-LLM trim
+  through the one `smart_context` controller: no model call, no forced turn, the
+  first next provider request is sent untrimmed, and the edit applies at the
+  next natural completed-turn boundary. A pending Toolkit pivot or a newer
+  boundary change cancels the queued request with a visible notice.
+- `/smart-compact storage`: a strictly read-only inventory of saved tool output
+  (totals, per-session in-use / not-referenced-in-scan / unknown status, scan
+  coverage, self-managing retention neighbors). There is no `--clean` or
+  artifact garbage collection: sessions can live outside Pi's sessions root and
+  a running session can write new references at any time, so
+  unreferenced-in-scan is never safe-to-delete.
+- Model capacity feasibility: model rows and readiness use local estimates of
+  planned stage requests from a retention-aware chunk/extraction plan, with
+  requested output and 4,096 tokens of SDK headroom reserved — not the whole
+  conversation against the stage model’s window. Ineligible rows are disabled; sizes that only exist
+  after generation (explorer feedback, assembly, repair) cannot be pre-known;
+  every actual dispatch re-estimates and revalidates the built request before
+  the provider is contacted. Snapshots refresh after mode/model/privacy
+  changes; the UI never refreshes authentication to build them.
+
+### Changed
+
+- The selected memory backend is exclusive. With Hindsight selected, confirmed
+  saves and recall use only the user's existing configured server and bank —
+  Smart Compact never installs or starts a server — with no local copy or
+  fallback (`hindsightLocalFallback` is removed and reported as a stale ignored
+  key); failures report themselves instead of quietly using another store.
+  Mnemopi and local behave symmetrically, inactive stores are preserved
+  untouched, and `scope: "session"` is unsupported on remote backends (skipped,
+  nothing else is read). Structured continuity state, backups and artifact
+  spill remain session mechanisms independent of the backend choice.
+- Mnemopi runtime resolution is package-owned first: the pinned `bun` optional
+  dependency (1.4.2), then its platform `@oven/*` package, then a supported
+  Bun (>=1.3.14) on PATH. Normal installs ship the optional runtime and engine,
+  so no global Bun is required; nothing installs itself at use time and missing
+  pieces fail closed before any memory request is submitted.
+- RTK companion eligibility is exactly bare `git status`, `cargo test` and
+  `bun test`: `bun test` joined after an RTK 0.50.0 paired native/filtered
+  runner check showed exit-code and failure/load-error parity plus full recall
+  of the filtered output, with the command executed exactly once. `git diff`,
+  `tsc` and vitest 5 stay untouched (measured lossy or growing), `npm test` and
+  `node --test` have no rule, and commands with arguments or shell composition
+  remain passthrough.
+- Native compaction and replay are documented honestly about cache effects:
+  the request prefix legitimately diverges across a native boundary, while
+  checkpoint/rewind trims keep the checkpoint-stable prefix and archive removed
+  middle evidence for retrieval.
+
+### Verified
+
+- The release audit now runs the installed, packed Mnemopi worker under stock
+  Node with a PATH that offers no Bun — proving the package-owned runtime — and
+  adds missing-engine and missing-Bun fail-closed negatives that create no
+  store, make no model/network request, and keep the unselected local engine
+  from starting.
+- Long-session storage durability is pinned with real `SessionManager`
+  fixtures: artifacts aged past 20 days (timestamps aged deterministically, not
+  a wall-clock soak), retrieval through the public `smart_context` consumer
+  after actual reload and fork, fail-closed missing/tampered bytes, and
+  per-origin caps without losing earlier evidence.
+
+### Unchanged
+
+- The frozen 9.8.0-canary.0/.1 archives and the daily installation are
+  untouched; no publish, tag or commit accompanies this candidate. Exact
+  paired-archive hashes are recorded by the release owner at final packaging.
+
+## [9.8.0-canary.1] - 2026-09-25
+
+Local-only polish candidate; not published. Offline validation does not replace
+the required live production canary evidence.
+
+### Added
+
+- Stable, backend- and target-bound refs in confirmed memory saves/recall. Resolve requires the ref instead of exact preview text, names the actual store for consent, and does not retarget when settings change. Hindsight refs additionally bind project and document; unrelated remote documents have no actionable ref.
+- Explicit derived-only reset versus full local graph deletion, with saved/derived/legacy counts, confirmation, and clear exclusions for other backends, compaction state and backups.
+- One read-only effective-state view for preflight (`S`), metrics and dashboard: routes, credential presence versus live verification, backend prerequisites, effective branch policy, pressure gates and runtime preparation.
+- Packaged `task-eval` CLI: four paired stock-Pi continuation/memory arms, repeated-compaction probes, independent executable oracles, usage/cache and policy comparisons. Offline scripted transport is the default; the separate opt-in live path has explicit budgets and limitations, not an implied quality result.
+
+### Fixed
+
+- Promotion requires host-confirmed applied runs; cancellations cannot fill the 20-run minimum or manufacture failures. Unknown release channels are not stable evidence. Both cohorts need quality/damage coverage and canary data confidence must reach 85; native runs carry explicit cohort/route metadata.
+- Copied cross-project Hindsight refs, missing targets and target-tail substitution are rejected before deletion. Unknown or missing retain status blocks deletion until terminal evidence, preventing delayed retain completion from recreating a deleted fact. Bounded recall refresh includes unknown receipts; lock failures identify the retained lock without removing it automatically.
+- Current privacy settings re-scrub stored local facts before resolve confirmation without changing ref identity. Truncated recall previews and backend changes no longer make confirmed memories unresolvable.
+- Completed but unused preparation is recorded once with discard reason, timing and cost; graceful session shutdown drains late work and metric writes. Used/discarded reports keep cache categories, reported/estimated usage, subscription billing labels and repair provenance distinct.
+- Empty model pickers report missing credentials instead of cancellation; narrow rows preserve stored values, changed-setting markers refresh after edits/resets, and review accepts uppercase/Kitty Apply, Cancel and Quit keys.
+- Evaluator `--help` exits without running tasks or creating reports.
+
+### Unchanged
+
+- Hygiene savings floors, cooldowns, pressure thresholds and preparation TTLs are not tuned from synthetic results. Daily installation, automatic-memory policy and live-provider approval remain untouched.
+
+## [9.8.0-canary.0] - 2026-09-25
+
+Local-only candidate; not published. Isolated validation is not the required
+20-run production canary evidence.
+
+### Added
+
+- `compactionEngines`: an ordered engine list (default `["eesv"]`). Engines are tried in order; the first success applies. Unavailable engines are skipped with a reason, failures are recorded, and if none succeeds the conversation is unchanged and every outcome is reported. Settings offer four presets.
+- Native engine: the current model's own provider compaction, for Anthropic Messages (API key and Claude subscription), OpenAI Codex subscription and OpenAI Responses API key. Works on stock Pi 0.87.1+ as an extension: one nested Pi request is sent once as the provider's compaction request (no retries). The state is stored in the compaction entry's `details.native` and replayed to the same provider and model through `before_provider_request`; it is opaque and not EESV-verified. If replay cannot be applied (it depends on Pi's request format), the model reads the text summary, which for OpenAI routes is only the retained user messages. Cuts keep whole turns; a result that is not smaller is rejected. Opt-in; the default stays `["eesv"]`. Live on stock Pi: Codex subscription (gpt-5.6-luna) validated (compaction accepted, replay after reload accepted and byte-exact; recall of incidental details lossy; re-compaction offline only). Claude subscription is experimental: Anthropic may bill the compaction request as extra usage (real-session attempts were rejected with "400 You're out of extra usage"; cause not isolated). Anthropic and OpenAI API-key routes: offline tests only. For subscription users, "Native, fall back to smart summary" is the safe preset. Known limitation: in sessions smaller than Pi's `compaction.keepRecentTokens`, Pi refuses to apply after the engine has run; Smart Compact reports it and the conversation is unchanged.
+- Provider-request adaptation: nested Smart Compact requests to Anthropic Messages (native compaction, native replay and EESV calls) are offered to adapters on the `pi-toolkit:adapt-provider-request` v1 channel, because stock Pi does not run `before_provider_request` for extension-made requests. Claude subscription requests from extensions (native and EESV) require pi-toolkit's Claude OAuth adapter with this contract. A native "extra usage" rejection on a Claude subscription adds a hint to use an API key or put the smart summary engine first.
+- Optional Hindsight memory backend (`memoryBackend: "hindsight"`): confirmed `smart_save_memory` saves also go to a configured Hindsight bank, and `smart_recall` adds a strict project-scoped remote section. The confirmation shows the exact server, bank and document; the key is read from a named environment variable. Accepted, completed, failed and unknown outcomes are reported as such, with a configurable local copy. No automatic uploads. See `docs/hindsight-memory.md`.
+- Optional Mnemopi backend (`memoryBackend: "mnemopi"`): host-confirmed save/resolve and bounded full-text recall through the real local SQLite engine. A separate Bun worker preserves stock Node Pi support; private per-project databases, stable duplicate identity, checked provenance and cross-process locking prevent accidental cross-project or duplicate writes. Embeddings, model calls, shared default banks and automatic uploads remain off. Settings expose an optional absolute/`~/` data directory.
+- Independent `prepareContextPercent` for background preparation, strictly below the existing `minContextPercent` apply gate. Auto/null preserves adaptive lead; the 5,000-token minimum, idle apply lifecycle and all target/yield checks stay in force. TUI validation refuses conflicting edits in both directions.
+- Issue history: `/smart-compact metrics` starts with the last 20 problems (age, repeat count).
+- Settings TUI: per-row reset with `r`, changed-setting marks, inactive dependent rows with a reason, and a warning line for ignored `settings.json` values.
+
+- Repeatable offline full-AgentSession pilot with real tools, Toolkit cooperation, automatic hygiene, evidence retrieval, context-only rewind, correlated compaction and persistent reopen. Model transport is scripted, so results do not claim autonomous quality or provider-billing savings.
+- Opt-in `contextHygieneEnabled`, independent of automatic compaction, and `smart_context plan` for non-mutating batch previews. Automatic trimming batches at least 16,384 saved characters and respects an eight-assistant-turn branch-persisted cooldown; no per-turn prompts.
+- Separate, explicitly loaded RTK companion (`pi-smart-compact/rtk`), with CLI delegation, conservative command eligibility, cancellation/session guards and no execution retries. A real RTK 0.50 pilot restricts initial rewriting to bare `git status`/`cargo test`; lossy diffs and counterproductive typecheck filtering are left unchanged.
+- Offline native-compaction compatibility probes against real Pi adapters. Pi 0.87.1's adapters do not parse or replay signed Anthropic or opaque OpenAI compaction data themselves, which is why the native engine sends its own compaction request and replays the state from `before_provider_request`.
+- Opt-in `autoTriggerStrategy: "background"`: prepare EESV on a completed-turn snapshot before the pressure gate, then reuse it at native/idle compaction boundaries without a manual tool call. Single-task speculation, retry cooldown, TTL, cancellation, projected-content checks, and response-headroom/yield validation bound reuse; new tail messages remain verbatim.
+- Regression coverage for non-blocking preparation, late completion, model/config/branch invalidation, and correlated application without a second LLM call.
+- `smart_context`: one branch-local checkpoint, deferred context-only rewind with an agent-authored report, bounded trimming of old read-only output, and paged recovery from the original session log. Errors, side-effecting/unknown tools, recent turns, and tool pairs are preserved. Native boundary metadata survives reload without a second transcript store.
+- Background mode tries local trimming before speculative EESV when the context tool is active, without repeatedly invalidating work already in flight.
+- Opt-in `artifactOffloadEnabled`: persist large successful read-only text outputs before model input, returning a bounded preview and branch-owned reference. Private, integrity-checked, deduplicated files with per-origin quotas; failures keep original output and never claim incomplete recovery.
+- `smart_context search` and line-range reads across existing archived outputs, visual excerpts and new artifacts. Literal matching, bounded scans/pages, source labels, explicit missing-file errors and re-scrubbing before retrieval; no additional model calls or database.
+- Experimental `visualArchiveEnabled` (default `false`): locally rendered bitmap excerpts beside the verified EESV text summary. Optional Node-compatible resvg plus a licensed bundled font, bounded payload/source selection, branch/model/privacy validation, native-session reload/re-rendering, and text fallback. This preserves extra evidence at an additional image-token cost; the initial Sonnet 5 synthetic pilot found no token advantage over equivalent text excerpts.
+
+### Fixed
+
+- Native compaction rejects incomplete Codex responses and state missing the required Anthropic signature or OpenAI encrypted content instead of staging unusable context.
+- Native replay requires Pi's exact summary wrapper; overlapping text in a new user instruction is never replaced. Re-compaction stops before sending a request if the prior native state cannot be replayed.
+- Anthropic on-demand compaction removes incompatible `context_management`, including fields supplied by a request adapter. This does not establish the cause of the experimental Claude subscription billing rejection.
+- A queued `smart_context` operation cancelled by a Toolkit pivot now produces a visible, model-delivered cancellation message instead of silently disappearing; context remains unchanged.
+- Rejected settings edits no longer report warnings for hypothetical states that were never written, or hide the subsequent real invalid-file warning.
+- Optional-backend recall labels its local graph section explicitly. Missing Mnemopi dependencies fail before a request is submitted rather than reporting an uncertain write.
+- Notices from a run that finishes after a session switch no longer appear in the new session.
+- Background-run problems are no longer written to stderr inside the TUI; they are shown at the next event.
+
+- Artifact byte deduplication no longer overwrites distinct source labels. Paged discovery preserves each tool/source/content combination and authorized entry-ID reads while retaining existing content-hash IDs, branch revocation and re-scrubbing.
+- Archived native-output discovery uses the shared path extractor, including `filePath`, `filename`, `target_file`, `file_uri` and `absolute_path` aliases.
+- Bitmap admission compares equivalent text using the active reader's provider/model calibration, not the summarizer's calibration; checked before and after rendering.
+- Staged summaries now revalidate reader identity/limits, current context growth, native reserve/headroom and yield before apply. New compact instructions, model changes and navigation invalidate old candidates; late native-hook work cannot reapply an invalidated plan.
+- Early artifact offload leaves file/symbol read deliveries intact, preventing pi-lens from granting read-before-edit coverage for omitted middle content. Other eligible outputs still offload; historical trimming/retrieval is unchanged.
+- Cooperate with the updated Toolkit's explicit thinning-off mode and versioned pivot notifications. Pending navigation pauses preparation/compaction/context mutations; matching completion releases it on success/cancel/failure without stale-operation leakage.
+- Pre-compaction dedup now requires identical content, not only matching arguments, and preserves changed observations, unknown tools, media and instruction reads. Status-looking user text no longer authorizes deletion.
+- Shared instruction/skill-source protection across recoverable trim, rewind, artifacts, visual selection and pre-compaction pruning. Recovery tool outputs are not recursively trimmed; missing trim boundaries fail closed.
+- Multi-page rendering now uses a fresh child cancellation signal per page; resvg's native single-use AbortSignal binding previously rejected the second page with `InvalidArg` on Node and Bun. Added a regression test and a bounded, opt-in synthetic live pilot with recorded observations.
+- Compaction and preflight now use Pi's native context projection, honoring `context_edit` replacements and omissions. Raw-log recovery restores only truncated, unedited entries rather than overwriting intentionally changed siblings.
+- Extraction-cache reuse checks a message-content prefix hash as well as entry IDs. Staged summaries reject changed projected context even when their original branch IDs still exist.
+
+### Changed
+
+- Tools are exposed lazily, decided only at session start and after compaction: `smart_recall`/`smart_save_memory` once the project has memory (or with Hindsight/Mnemopi), `smart_context` when hygiene/offload/background is on or Toolkit's `context` tool is absent. Tool descriptions were shortened; a new session with Toolkit and no project memory now starts with about 267 tokens of Smart Compact tool text instead of about 1.56k. `/tools` choices are respected.
+- Problems are visible without debug mode: each one is shown once per session as a one-line "Smart Compact: what happened. Effect. What to do." notice. Provider errors include their scrubbed first line (at most 160 characters). `DEBUG=smart-compact` now only adds stack traces.
+- Nothing is added to Pi's footer while healthy. Background preparation no longer shows "preparing/ready", the RTK companion's "inactive" status became a one-time notice, and run progress moved out of the footer. `showStatus` now only shows a note when compaction is manual-only or disabled.
+- Without a UI (print, RPC, SDK), warnings and errors go to stderr, and `/smart-compact` with no arguments runs with the configured defaults instead of reporting "Cancelled".
+- Settings TUI reorganized by task into seven categories (Compaction, Models & reasoning, Memory, Context hygiene, Privacy & safety, This branch only, Advanced › Limits) with plain labels and descriptions. Setting keys and stored values are unchanged.
+- Product focus: context hygiene and session continuity; existing package name and compaction APIs remain stable.
+- Bitmap rendering crops blank width without shrinking glyphs. New archives require a validated model cost rule and at least 25% estimated benefit over equivalent text; unsupported/unprofitable cases retain verified text. No new live model calls or billed-savings claim.
+- Minimum Pi version is **0.87.1**. Host packages remain external peers; development dependencies pin the minimum version for reproducible checks. Update older Pi installations before using this release.
+- Existing `native-hook` default and manual approval behavior are unchanged. Visual evidence is opt-in; filesystem rollback is not included.
+
 ## [9.7.1] - 2026-09-23
 
 ### Fixed

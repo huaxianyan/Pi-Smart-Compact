@@ -10,10 +10,22 @@ import type { CompressionProfile, ProfileConfig } from "./types.ts";
  * `package.json#version`. Do not hand-edit this line for releases; bump
  * package.json and run `bun run sync-version`.
  */
-export const VERSION = "9.7.1";
+export const VERSION = "10.7.3";
+/**
+ * Opt-in components that are not installed with the extension: optional peer
+ * dependencies in package.json, pinned to the versions the release audit
+ * exercises. The audit fails if these drift from the manifest.
+ */
+export const OPTIONAL_COMPONENTS = {
+ mnemopi: { name: "@oh-my-pi/pi-mnemopi", version: "18.12.6", enables: "Mnemopi memory store" },
+ bun: { name: "bun", version: "1.4.4", enables: "Mnemopi worker runtime when no Bun 1.3.14+ is on PATH" },
+ resvg: { name: "@resvg/resvg-js", version: "2.6.2", enables: "image snapshots" },
+} as const;
 export const CHARS_PER_TOKEN = 3.8;
 export const MIN_COMPACTION_SAVING_RATIO = 0.1;
 export const ESTIMATOR_ROUNDING_TOLERANCE_TOKENS = 1;
+/** Share of the planned post-compaction target a verified summary may overshoot. */
+export const YIELD_TARGET_TOLERANCE_RATIO = 0.05;
 /** Space reserved in the window plan for deterministic verification/state sections added after LLM synthesis. */
 export const POST_SUMMARY_RESERVE_RATIO = 0.25;
 /** Maximum number of open-loop records retained in durable continuity state. */
@@ -24,208 +36,265 @@ export const MAX_STATE_OPEN_LOOPS = 25;
  * throws away every completed batch and hands the turn to native compaction.
  * The ceiling still exists so a wedged provider cannot block the host forever.
  */
-export const AUTO_TRIGGER_TIMEOUT_CAP_MS = 600_000;
-/**
- * Provider-call ceiling for the synchronous session_before_compact hook. It must
- * leave room for one call per batch plus final assembly; a ceiling below that
- * pushes whole batches onto the deterministic fallback before they are tried.
- */
-export const AUTO_TRIGGER_MAX_LLM_CALLS = 8;
+export const AUTO_TRIGGER_TIMEOUT_CAP_MS = 300_000;
+/** Provider-call ceiling for the synchronous session_before_compact hook. */
+export const AUTO_TRIGGER_MAX_LLM_CALLS = 4;
 /** Suppress proactive settled-trigger churn after any confirmed compaction. */
 export const SETTLED_TRIGGER_COOLDOWN_MS = 10 * 60_000;
+/**
+ * Minimum uncached prompt tokens (input + cacheWrite) for a host request to
+ * count as a prompt-cache rebuild. Anthropic caches need >=1024-4096-token
+ * prefixes and every turn legitimately re-sends the new tail uncached (tool
+ * results, user input: routinely a few thousand tokens); 16k sits clearly
+ * above that tail noise while staying far below a real prefix rebuild.
+ */
+export const REBUILD_MIN_TOKENS = 16_384;
+
+/** Consecutive large zero-read requests before a route is flagged cache-inactive. */
+export const CACHE_INACTIVE_ROUTE_MIN_REQUESTS = 3;
+/** Prompt floor for the inactive-route streak; covers every documented provider minimum. */
+export const CACHE_INACTIVE_ROUTE_MIN_PROMPT_TOKENS = 4_096;
+/** First-party Anthropic long-context pricing starts above this many prompt tokens. */
+export const LONG_CONTEXT_PRICING_THRESHOLD_TOKENS = 200_000;
+/**
+ * Further requests within which a warm-cache automatic trim must pay back its
+ * prefix rewrite; sessions rarely run that many requests without another prefix change.
+ */
+export const AUTO_TRIM_BREAK_EVEN_REQUESTS = 24;
+/**
+ * Expected savings (USD) a prompt-cache refresh must reach to be worth sending;
+ * Pi warms when `continuationProbability * missCost - warmCost >= 0.05` (Pi docs/settings.md).
+ */
+export const CACHE_WARMING_MIN_SAVINGS_USD = 0.05;
 
 /** Positive per-run bounds shared by CLI and tool arguments; config separately allows 0 as a mode-derived sentinel. */
 export const BUDGET_LIMITS = {
-	CALLS: { min: 1, max: 100 },
-	INPUT_TOKENS: { min: 10_000, max: 1_000_000 },
-	LATENCY_MS: { min: 5_000, max: 600_000 },
+ CALLS: { min: 1, max: 100 },
+ INPUT_TOKENS: { min: 10_000, max: 1_000_000 },
+ LATENCY_MS: { min: 5_000, max: 600_000 },
 } as const;
 
 export const COMPACT_SYSTEM_PREFIX =
-	"You are an expert conversation summarizer for a coding agent. " +
-	"Produce structured markdown summaries. " +
-	"Follow output format exactly. " +
-	"Use EXACT names — never paraphrase code identifiers. " +
-	"Trust deterministic extraction data over intuition.";
+ "You are an expert conversation summarizer for a coding agent. " +
+ "Produce structured markdown summaries. " +
+ "Follow output format exactly. " +
+ "Use EXACT names — never paraphrase code identifiers. " +
+ "Trust deterministic extraction data over intuition.";
 
 export const PROFILES: Record<CompressionProfile, ProfileConfig> = {
-	light: {
-		summaryBudgetTokens: 10000,
-		keepRecentTokens: 30000,
-		minChunkTokens: 800,
-		maxChunkTokens: 12000,
-		singlePassMaxTokens: 40000,
-		batchMaxTokens: 30000,
-	},
-	balanced: {
-		summaryBudgetTokens: 6000,
-		keepRecentTokens: 20000,
-		minChunkTokens: 500,
-		maxChunkTokens: 8000,
-		singlePassMaxTokens: 30000,
-		batchMaxTokens: 24000,
-	},
-	aggressive: {
-		summaryBudgetTokens: 3000,
-		keepRecentTokens: 10000,
-		minChunkTokens: 300,
-		maxChunkTokens: 6000,
-		singlePassMaxTokens: 20000,
-		batchMaxTokens: 18000,
-	},
+ light: {
+  summaryBudgetTokens: 10000,
+  keepRecentTokens: 30000,
+  minChunkTokens: 800,
+  maxChunkTokens: 12000,
+  singlePassMaxTokens: 40000,
+  batchMaxTokens: 30000,
+ },
+ balanced: {
+  summaryBudgetTokens: 6000,
+  keepRecentTokens: 20000,
+  minChunkTokens: 500,
+  maxChunkTokens: 8000,
+  singlePassMaxTokens: 30000,
+  batchMaxTokens: 24000,
+ },
+ aggressive: {
+  summaryBudgetTokens: 3000,
+  keepRecentTokens: 10000,
+  minChunkTokens: 300,
+  maxChunkTokens: 6000,
+  singlePassMaxTokens: 20000,
+  batchMaxTokens: 18000,
+ },
 };
 
 export const PROFILE_NUMERIC_BOUNDS = {
-	summaryBudgetTokens: [256, 100_000],
-	keepRecentTokens: [1_000, 500_000],
-	minChunkTokens: [100, 100_000],
-	maxChunkTokens: [500, 200_000],
-	singlePassMaxTokens: [1_000, 500_000],
-	batchMaxTokens: [1_000, 500_000],
+ summaryBudgetTokens: [256, 100_000],
+ keepRecentTokens: [1_000, 500_000],
+ minChunkTokens: [100, 100_000],
+ maxChunkTokens: [500, 200_000],
+ singlePassMaxTokens: [1_000, 500_000],
+ batchMaxTokens: [1_000, 500_000],
 } as const;
 
+/** Home warns above this model window when maxContextTokens is off. */
+export const LARGE_CONTEXT_WINDOW_TOKENS = 400_000;
+
 export const CONFIG_NUMERIC_LIMITS = {
-	minContextPercent: { min: 0, max: 100, integer: false },
-	autoTriggerTimeoutMs: { min: 1_000, max: 300_000, integer: true },
-	maxLlmCalls: { min: 0, max: 100, integer: true },
-	maxLlmInputTokens: { min: 0, max: 1_000_000, integer: true },
-	codexMaxCallMs: {
-		min: 5_000,
-		max: 3_600_000,
-		integer: true,
-		zeroOrRange: true,
-	},
-	maxLatencyMs: {
-		min: 5_000,
-		max: 7_200_000,
-		integer: true,
-		zeroOrRange: true,
-	},
-	pendingTtlMs: { min: 1_000, max: 3_600_000, integer: true },
+ minContextPercent: { min: 0, max: 100, integer: false },
+ prepareContextPercent: { min: 0, max: 100, integer: false },
+ autoTriggerTimeoutMs: { min: 1_000, max: 300_000, integer: true },
+ maxLlmCalls: { min: 0, max: 100, integer: true },
+ maxLlmInputTokens: { min: 0, max: 1_000_000, integer: true },
+ maxContextTokens: { min: 16_384, max: 2_000_000, integer: true, zeroOrRange: true },
+ codexMaxCallMs: {
+  min: 5_000,
+  max: 3_600_000,
+  integer: true,
+  zeroOrRange: true,
+ },
+ maxLatencyMs: {
+  min: 5_000,
+  max: 7_200_000,
+  integer: true,
+  zeroOrRange: true,
+ },
+ pendingTtlMs: { min: 1_000, max: 3_600_000, integer: true },
+ pendingFingerprintTtlMs: { min: 60_000, max: 3_600_000, integer: true, zeroOrRange: true },
+ hindsightTimeoutMs: { min: 1_000, max: 60_000, integer: true },
+ hindsightRecallMaxTokens: { min: 128, max: 4_096, integer: true },
+ autoTrimBreakEvenRequests: { min: 1, max: 1_000, integer: true },
+ autoTrimMinSavingChars: { min: 0, max: 10_000_000, integer: true },
 } as const;
 
 export const DEFAULT_CONFIG = {
-	mode: "auto" as const,
-	profile: "balanced" as CompressionProfile,
-	profiles: PROFILES,
-	summaryModel: null as string | null,
-	segmentationModel: null as string | null,
-	verificationModel: null as string | null,
-	summaryThinkingLevel: "minimal" as const,
-	segmentationThinkingLevel: "minimal" as const,
-	agentToolAccess: "inherit" as const,
-	autoTrigger: true,
-	showStatus: true,
-	autoTriggerStrategy: "native-hook" as const,
-	autoTriggerTimeoutMs: 120000,
-	backupEnabled: true,
-	backupDir: "",
-	minContextPercent: 60, // Don't compact below this context threshold (tool=97% ≠ context full)
-	requireApproval: true,
-	scrubSecrets: true,
-	scrubPii: false,
-	maxLlmCalls: 8,
-	maxLlmInputTokens: 0,
-	codexMaxCallMs: 0,
-	maxLatencyMs: 0,
-	pendingTtlMs: 300000,
-	focusWeighting: true,
-	zeroCallEnabled: true,
-	contextGraphEnabled: true,
-	telemetryChannel: "stable" as const,
-	adaptiveDamageFeedback: false,
-	onlineDamageMonitor: true,
-	pinPaths: [] as string[],
+ mode: "auto" as const,
+ profile: "balanced" as CompressionProfile,
+ profiles: PROFILES,
+ summaryModel: null as string | null,
+ segmentationModel: null as string | null,
+ verificationModel: null as string | null,
+ summaryThinkingLevel: "minimal" as const,
+ segmentationThinkingLevel: "minimal" as const,
+ agentToolAccess: "inherit" as const,
+ toolLoading: "eager" as const,
+ autoTrigger: true,
+ showStatus: true,
+ autoTriggerStrategy: "settled" as const,
+ autoTriggerTimeoutMs: 300000,
+ backupEnabled: true,
+ backupDir: "",
+ minContextPercent: 80, // Two phases: early cleanup, then compaction; tool share is not fullness.
+ prepareContextPercent: null as number | null, // Auto: adaptive lead before minContextPercent
+ maxContextTokens: 0, // 0 = off; else caps the window used by automatic trigger/preparation percentages
+ requireApproval: true,
+ scrubSecrets: true,
+ scrubPii: false,
+ maxLlmCalls: 8,
+ maxLlmInputTokens: 0,
+ codexMaxCallMs: 0,
+ maxLatencyMs: 0,
+ pendingTtlMs: 300000,
+ pendingFingerprintTtlMs: 0,
+ focusWeighting: true,
+ zeroCallEnabled: true,
+ contextGraphEnabled: true,
+ compactionEngines: ["eesv"] as Array<"eesv" | "native">,
+ memoryBackend: "local" as const,
+ hindsightBaseUrl: null as string | null,
+ hindsightBankId: null as string | null,
+ hindsightApiKeyEnv: null as string | null,
+ hindsightTimeoutMs: 12000,
+ hindsightRecallMaxTokens: 2048,
+ mnemopiDataDir: null as string | null,
+ visualArchiveEnabled: false,
+ artifactOffloadEnabled: false,
+ contextHygieneEnabled: true,
+ contextPressureOnly: true, // false opts into legacy break-even/cold-cache cleanup.
+ providerContextEditing: "off" as const,
+ autoTrimBreakEvenRequests: AUTO_TRIM_BREAK_EVEN_REQUESTS,
+ autoTrimMinSavingChars: 16_384,
+ contextNavigationEnabled: true,
+ contextRecallEnabled: true,
+ contextPivotEnabled: true,
+ contextAnchorCacheEnabled: true,
+ contextAnchorStatusEnabled: true,
+ contextGuidanceEnabled: true,
+ promptCacheRoutingEnabled: false,
+ telemetryChannel: "stable" as const,
+ adaptiveDamageFeedback: false,
+ onlineDamageMonitor: true,
+ pinPaths: [] as string[],
 };
 
 export const NO_OP_RE =
-	/applied:\s*0|no changes applied|nothing to (?:do|change)|0 edits? applied/i;
+ /applied:\s*0|no changes applied|nothing to (?:do|change)|0 edits? applied/i;
 // Turkish cues in both proper (şimdi/geçelim/bakalım/yapalım/başka) and ASCII
 // (simdi/gecelim/...) spellings — users mix the two. The `u` flag matches
 // FOLLOWUP_RE's convention for Turkish-bearing patterns.
 export const SHIFT_RE =
-	/şimdi|simdi|peki|bi de|bide|geçelim|gecelim|bakalım|bakalim|yapalım|yapalim|başka|baska|sonra|tamam şimdi|tamam simdi|now let|also|next|let's|moving on|switch to/iu;
+ /şimdi|simdi|peki|bi de|bide|geçelim|gecelim|bakalım|bakalim|yapalım|yapalim|başka|baska|sonra|tamam şimdi|tamam simdi|now let|also|next|let's|moving on|switch to/iu;
 export const CHOICE_RE =
-	/use\s+\S+\s+(?:instead|not|rather)|don't\s+use|avoid\s+|switch\s+to\s+|go\s+with\s+|prefer\s+/i;
+ /use\s+\S+\s+(?:instead|not|rather)|don't\s+use|avoid\s+|switch\s+to\s+|go\s+with\s+|prefer\s+/i;
 
 // ── Prompt Templates ──
 
 export const SINGLE_PASS_PREFIX =
-	"Summarize this coding agent conversation. Produce ONE structured summary.\n" +
-	"\nRules for Accuracy:\n" +
-	"1. Session Type: read-only tool calls = REVIEW, not implementation\n" +
-	'2. Status: Check for user complaints before marking "Done"\n' +
-	"3. Exact Names: Quote specific variable/function/parameter names, don't paraphrase\n" +
-	"4. Files: Use the VERIFIED file lists above (deterministically extracted, zero hallucination risk)\n" +
-	"\nOutput EXACTLY this format:\n\n" +
-	"## Goal\n[What the user is trying to accomplish]\n" +
-	"## Constraints & Preferences\n- [CRITICAL: user requirements, preferences, constraints]\n" +
-	"## Progress\n### Done\n- [x] [Completed tasks with file references]\n### In Progress\n- [ ] [Current work state]\n### Blocked\n- [Issues]\n" +
-	"## Key Decisions\n- **[Decision]**: [Rationale]\n" +
-	"## Files Modified\n- [Verified list from deterministic extraction]\n" +
-	"## Files Deleted\n- [Verified deleted paths from deterministic extraction]\n" +
-	"## Files Read\n- [Verified list from deterministic extraction]\n" +
-	"## Next Steps\n1. [What should happen next]\n" +
-	"## Critical Context\n- [Specific data, patterns, info needed to continue]\n- [Error patterns or gotchas]\n" +
-	"## Topics Covered\n[Chronological bullet list with priority in brackets]\n";
+ "Summarize this coding agent conversation. Produce ONE structured summary.\n" +
+ "\nRules for Accuracy:\n" +
+ "1. Session Type: read-only tool calls = REVIEW, not implementation\n" +
+ '2. Status: Check for user complaints before marking "Done"\n' +
+ "3. Exact Names: Quote specific variable/function/parameter names, don't paraphrase\n" +
+ "4. Files: Use the VERIFIED file lists above (deterministically extracted, zero hallucination risk)\n" +
+ "\nOutput EXACTLY this format:\n\n" +
+ "## Goal\n[What the user is trying to accomplish]\n" +
+ "## Constraints & Preferences\n- [CRITICAL: user requirements, preferences, constraints]\n" +
+ "## Progress\n### Done\n- [x] [Completed tasks with file references]\n### In Progress\n- [ ] [Current work state]\n### Blocked\n- [Issues]\n" +
+ "## Key Decisions\n- **[Decision]**: [Rationale]\n" +
+ "## Files Modified\n- [Verified list from deterministic extraction]\n" +
+ "## Files Deleted\n- [Verified deleted paths from deterministic extraction]\n" +
+ "## Files Read\n- [Verified list from deterministic extraction]\n" +
+ "## Next Steps\n1. [What should happen next]\n" +
+ "## Critical Context\n- [Specific data, patterns, info needed to continue]\n- [Error patterns or gotchas]\n" +
+ "## Topics Covered\n[Chronological bullet list with priority in brackets]\n";
 
 export const SINGLE_PASS_SUFFIX =
-	"\n{PREV_CONTEXT}\n\n{EXTRACTION_CONTEXT}\n\n{EXPLORATION_CONTEXT}\n\n<conversation>\n{CONVERSATION}\n</conversation>";
+ "\n{PREV_CONTEXT}\n\n{EXTRACTION_CONTEXT}\n\n{EXPLORATION_CONTEXT}\n\n<conversation>\n{CONVERSATION}\n</conversation>";
 
 export const BATCH_PROMPT_PREFIX =
-	"Summarize these conversation segments.\n\nRules for Accuracy:\n" +
-	"1. Use EXACT file paths from extraction data\n" +
-	'2. Status: only mark "done" if there\'s clear evidence (successful test run, user confirmation)\n' +
-	"3. Quote specific values, don't paraphrase code\n\n" +
-	"For EACH segment produce EXACTLY:\n" +
-	"### CHUNK {NUMBER}: {TOPIC_NAME}\n" +
-	"**Priority**: [critical|high|normal|low]\n" +
-	"**Summary**: [2-4 sentences: what happened, errors, code changes with paths]\n" +
-	'**Decisions**: [comma-separated, or "None"]\n' +
-	'**Modified**: [comma-separated paths, or "None"]\n' +
-	'**Deleted**: [comma-separated paths, or "None"]\n' +
-	'**Read**: [comma-separated paths, or "None"]\n';
+ "Summarize these conversation segments.\n\nRules for Accuracy:\n" +
+ "1. Use EXACT file paths from extraction data\n" +
+ '2. Status: only mark "done" if there\'s clear evidence (successful test run, user confirmation)\n' +
+ "3. Quote specific values, don't paraphrase code\n\n" +
+ "For EACH segment produce EXACTLY:\n" +
+ "### CHUNK {NUMBER}: {TOPIC_NAME}\n" +
+ "**Priority**: [critical|high|normal|low]\n" +
+ "**Summary**: [2-4 sentences: what happened, errors, code changes with paths]\n" +
+ '**Decisions**: [comma-separated, or "None"]\n' +
+ '**Modified**: [comma-separated paths, or "None"]\n' +
+ '**Deleted**: [comma-separated paths, or "None"]\n' +
+ '**Read**: [comma-separated paths, or "None"]\n';
 
 export const BATCH_PROMPT_SUFFIX =
-	"\n{EXTRACTION_CONTEXT}\n\n<segments>\n{TEXT}\n</segments>";
+ "\n{EXTRACTION_CONTEXT}\n\n<segments>\n{TEXT}\n</segments>";
 
 export const ASSEMBLY_PROMPT_PREFIX =
-	"Merge these topic summaries into ONE coherent summary.\n\n" +
-	"## IMMUTABLE CONTEXT (do not modify or contradict these facts)\n" +
-	"These are deterministically verified from the original conversation. They take priority over ANY summary content below.\n\n" +
-	"Rules:\n" +
-	"1. Preserve ALL critical/high info. Condense normal, minimize low.\n" +
-	"2. Chronological order.\n" +
-	"3. The pre-processed data below is GROUND TRUTH — trust it over individual summaries.\n" +
-	"4. Files Modified list is deterministically verified — if a summary says a file was modified but it's NOT in the list above, omit it.\n" +
-	"5. Key Decisions below are verified — preserve them exactly, do not paraphrase the decision text.\n" +
-	"6. Do NOT fabricate file paths, function names, or error messages not present in the verified data.\n\n" +
-	"Format:\n" +
-	"## Goal\n[Overall objective]\n" +
-	"## Constraints & Preferences\n- [CRITICAL requirements, preferences, constraints]\n" +
-	"## Progress\n### Done\n- [x] [Completed tasks with file refs]\n### In Progress\n- [ ] [Current work state]\n### Blocked\n- [Issues]\n" +
-	"## Key Decisions\n- **[Decision]**: [Rationale]\n" +
-	"## Files Modified\n- [Verified deterministic list]\n" +
-	"## Files Deleted\n- [Verified deterministic deleted paths]\n" +
-	"## Files Read\n- [Verified deterministic list]\n" +
-	"## Next Steps\n1. [What should happen next]\n" +
-	"## Critical Context\n- [Data, patterns, info needed]\n" +
-	"## Topics Covered\n[Chronological bullets with priority]\n";
+ "Merge these topic summaries into ONE coherent summary.\n\n" +
+ "## IMMUTABLE CONTEXT (do not modify or contradict these facts)\n" +
+ "These are deterministically verified from the original conversation. They take priority over ANY summary content below.\n\n" +
+ "Rules:\n" +
+ "1. Preserve ALL critical/high info. Condense normal, minimize low.\n" +
+ "2. Chronological order.\n" +
+ "3. The pre-processed data below is GROUND TRUTH — trust it over individual summaries.\n" +
+ "4. Files Modified list is deterministically verified — if a summary says a file was modified but it's NOT in the list above, omit it.\n" +
+ "5. Key Decisions below are verified — preserve them exactly, do not paraphrase the decision text.\n" +
+ "6. Do NOT fabricate file paths, function names, or error messages not present in the verified data.\n\n" +
+ "Format:\n" +
+ "## Goal\n[Overall objective]\n" +
+ "## Constraints & Preferences\n- [CRITICAL requirements, preferences, constraints]\n" +
+ "## Progress\n### Done\n- [x] [Completed tasks with file refs]\n### In Progress\n- [ ] [Current work state]\n### Blocked\n- [Issues]\n" +
+ "## Key Decisions\n- **[Decision]**: [Rationale]\n" +
+ "## Files Modified\n- [Verified deterministic list]\n" +
+ "## Files Deleted\n- [Verified deterministic deleted paths]\n" +
+ "## Files Read\n- [Verified deterministic list]\n" +
+ "## Next Steps\n1. [What should happen next]\n" +
+ "## Critical Context\n- [Data, patterns, info needed]\n" +
+ "## Topics Covered\n[Chronological bullets with priority]\n";
 
 export const ASSEMBLY_PROMPT_SUFFIX =
-	"\nIMMUTABLE CONTEXT (verified deterministic data):\n- Key Decisions: {DECISIONS}\n- Files Modified (VERIFIED): {MODIFIED}\n- Files Read (VERIFIED): {READ}\n- Files Deleted (VERIFIED): {DELETED}\n\n{EXPLORATION_CONTEXT}\n{PREV_CONTEXT}\n\n<summaries>{SUMMARIES}</summaries>";
+ "\nIMMUTABLE CONTEXT (verified deterministic data):\n- Key Decisions: {DECISIONS}\n- Files Modified (VERIFIED): {MODIFIED}\n- Files Read (VERIFIED): {READ}\n- Files Deleted (VERIFIED): {DELETED}\n\n{EXPLORATION_CONTEXT}\n{PREV_CONTEXT}\n\n<summaries>{SUMMARIES}</summaries>";
 
 // ── Session-type-specific prompt instructions ──
 
 export const SESSION_TYPE_INSTRUCTIONS: Record<string, string> = {
-	debugging:
-		"Focus on: error chains, root cause analysis, attempted fixes, resolution status. Prioritize error messages and stack traces. Mark files as Done only if all errors resolved.",
-	implementation:
-		"Focus on: files created/modified, architectural decisions, feature completeness, test coverage. Prioritize code changes with exact paths.",
-	review:
-		"Focus on: files read, issues found, recommendations, approval status. Prioritize findings over changes. Read-only tool calls = REVIEW, not implementation.",
-	discussion:
-		"Focus on: decisions made, trade-offs discussed, consensus reached. Prioritize rationale over implementation details.",
+ debugging:
+  "Focus on: error chains, root cause analysis, attempted fixes, resolution status. Prioritize error messages and stack traces. Mark files as Done only if all errors resolved.",
+ implementation:
+  "Focus on: files created/modified, architectural decisions, feature completeness, test coverage. Prioritize code changes with exact paths.",
+ review:
+  "Focus on: files read, issues found, recommendations, approval status. Prioritize findings over changes. Read-only tool calls = REVIEW, not implementation.",
+ discussion:
+  "Focus on: decisions made, trade-offs discussed, consensus reached. Prioritize rationale over implementation details.",
 };
 
 // ── Section name constants ──
@@ -266,16 +335,16 @@ export const STATE_SNAPSHOT_MAX_FILES = 64;
 
 /** Bounded summary-domain evidence; newest/highest-value items win. */
 export const EXTRACTION_LIMITS = {
-	MODIFIED_FILES: 120,
-	READ_FILES: 160,
-	DELETED_FILES: 120,
-	ERRORS: 80,
-	DECISIONS: 80,
-	CONSTRAINTS: 80,
-	TOPICS: 80,
-	TIMELINE: 120,
-	MEDIA_ATTACHMENTS: 40,
-	REFERENCED_FILES: 200,
+ MODIFIED_FILES: 120,
+ READ_FILES: 160,
+ DELETED_FILES: 120,
+ ERRORS: 80,
+ DECISIONS: 80,
+ CONSTRAINTS: 80,
+ TOPICS: 80,
+ TIMELINE: 120,
+ MEDIA_ATTACHMENTS: 40,
+ REFERENCED_FILES: 200,
 } as const;
 export const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -284,58 +353,58 @@ export const EXTRACTION_CACHE_PREFIX = "compact-extraction-";
 
 // ── ID prefixes (were inline string literals scattered across modules) ──
 export const ID_PREFIX = {
-	PROJECT: "proj-",
-	COMPACT_SESSION: "sc-",
-	MULTI_TOOL_USE_SYNTHETIC: "mtu_",
-	OPEN_LOOP: "loop-",
-	DECISION: "decision-",
-	ERROR: "error-",
+ PROJECT: "proj-",
+ COMPACT_SESSION: "sc-",
+ MULTI_TOOL_USE_SYNTHETIC: "mtu_",
+ OPEN_LOOP: "loop-",
+ DECISION: "decision-",
+ ERROR: "error-",
 } as const;
 
 // ── Tuning factors (calibration EMA/clamp + constraint confidence) ──
 export const TUNING = {
-	EMA_PREV: 0.7,
-	EMA_SAMPLE: 0.3,
-	CALIBRATION_CLAMP_MIN: 0.3,
-	CALIBRATION_CLAMP_MAX: 3.0,
-	CONFIDENCE_HIGH: 0.85,
-	CONFIDENCE_MEDIUM: 0.8,
-	CONFIDENCE_LOW: 0.6,
+ EMA_PREV: 0.7,
+ EMA_SAMPLE: 0.3,
+ CALIBRATION_CLAMP_MIN: 0.3,
+ CALIBRATION_CLAMP_MAX: 3.0,
+ CONFIDENCE_HIGH: 0.85,
+ CONFIDENCE_MEDIUM: 0.8,
+ CONFIDENCE_LOW: 0.6,
 } as const;
 
 // ── Truncation budgets (named, not inline literals) ──
 export const TRUNC = {
-	// storage caps (extraction produces, state re-caps defensively)
-	MESSAGE: 300,
-	ERROR_DETAIL: 500,
-	DECISION_SUMMARY: 200,
-	USER_RESPONSE: 300,
-	CONSTRAINT_TEXT: 300,
-	OPEN_LOOP_SUMMARY: 120,
-	TIMELINE_EVENT: 150,
-	TIMELINE_ERROR: 100,
-	// prompt / context snippets
-	SNIPPET: 80,
-	PREVIEW: 150,
-	PREVIEW_MID: 200,
-	DETAIL: 300,
-	PREVIEW_LONG: 400,
-	PREVIEW_XL: 500,
-	PREVIOUS_SUMMARY: 12_000,
-	CONTINUITY_CAPSULE: 4_000,
-	CHUNK_FALLBACK: 180,
-	DECISION_DETAIL: 60,
-	TOPIC_LABEL: 100,
-	// hash / id / display
-	PROJ_ID_HASH: 12,
-	CONV_HASH: 8,
-	RESULT_GAPS: 5,
-	SESSION_ID_DISPLAY: 20,
-	ERROR_SNIPPET: 30,
-	TIMELINE_DISPLAY: 10,
-	EXPLORE_RESULTS: 15,
-	BACKUP_PREVIEW_LINES: 5,
-	FINGERPRINT_SEG: 2,
+ // storage caps (extraction produces, state re-caps defensively)
+ MESSAGE: 300,
+ ERROR_DETAIL: 500,
+ DECISION_SUMMARY: 200,
+ USER_RESPONSE: 300,
+ CONSTRAINT_TEXT: 300,
+ OPEN_LOOP_SUMMARY: 120,
+ TIMELINE_EVENT: 150,
+ TIMELINE_ERROR: 100,
+ // prompt / context snippets
+ SNIPPET: 80,
+ PREVIEW: 150,
+ PREVIEW_MID: 200,
+ DETAIL: 300,
+ PREVIEW_LONG: 400,
+ PREVIEW_XL: 500,
+ PREVIOUS_SUMMARY: 12_000,
+ CONTINUITY_CAPSULE: 4_000,
+ CHUNK_FALLBACK: 180,
+ DECISION_DETAIL: 60,
+ TOPIC_LABEL: 100,
+ // hash / id / display
+ PROJ_ID_HASH: 12,
+ CONV_HASH: 8,
+ RESULT_GAPS: 5,
+ SESSION_ID_DISPLAY: 20,
+ ERROR_SNIPPET: 30,
+ TIMELINE_DISPLAY: 10,
+ EXPLORE_RESULTS: 15,
+ BACKUP_PREVIEW_LINES: 5,
+ FINGERPRINT_SEG: 2,
 } as const;
 
 // ── Pruning ──
@@ -346,11 +415,24 @@ export const MAX_EXPLORER_OUTPUT_CHARS = 12_000;
 // ── Error detection (shared by pruning + extraction) ──
 /** Shell-output patterns signalling a likely error even in a non-`isError` result. */
 export const LIKELY_ERROR_RE =
-	/(?:command not found|no such file|permission denied|syntax error|cannot find|module not found|compilation error|build failed|test failed|^FAIL\b|ERROR:)/i;
+ /(?:command not found|no such file|permission denied|syntax error|cannot find|module not found|compilation error|build failed|test failed|^FAIL\b|ERROR:)/i;
+/** Conservative risk lines kept in a trim marker's digest (errors, failures, warnings, exits). */
+export const TRIM_RISK_LINE_RE =
+ /\b(?:error|fail(?:ed|ure)|warn(?:ing)?|exception|traceback|panic|exit code|exited with|command not found|permission denied|ENOENT|EACCES)\b/i;
+/** Trim marker digest bounds: line 1 always kept; later lines dropped from the end to fit. */
+export const TRIM_MARKER_MAX_LINES = 6;
+export const TRIM_MARKER_MAX_CHARS = 400;
 /** How far forward to look for a retry of the same tool after an error. */
 export const ERROR_RETRY_WINDOW = 6;
 /** How far forward to look for that retry's resolving (non-error) result. */
 export const ERROR_RESOLVE_WINDOW = 10;
+/** Handoff seed cap (same as a pivot carryover); recall gets a bounded share. */
+export const HANDOFF_MAX_CHARS = 16_000;
+export const HANDOFF_RECALL_MAX_CHARS = 6_000;
+export const HANDOFF_RECALL_LIMIT = 5;
+/** Parent sessions `smart_context scope=lineage` follows through `parentSession` headers, and the largest file it loads. */
+export const LINEAGE_MAX_DEPTH = 3;
+export const LINEAGE_MAX_FILE_BYTES = 64 * 1024 * 1024;
 
 // ── Per-run metrics buffer ──
 //
@@ -367,13 +449,13 @@ export const CONFIG_KEY = "smartCompact";
 export const CONFIG_KEY_ALT = "semanticCompact";
 
 export const EXPLORER_SYSTEM_PROMPT =
-	"You are a conversation analyst. You have deterministic extraction data and can query the raw conversation using tools.\n\n" +
-	"Your job:\n" +
-	"1. Verify/enrich the extracted boundaries (merge, split, or add as needed)\n" +
-	"2. Identify cross-topic relationships\n" +
-	"3. Find implicit constraints (user tone, frustration, urgency)\n" +
-	"4. Assess completion status accurately\n" +
-	"5. Extract the narrative arc\n\n" +
-	"Use tools BEFORE forming conclusions. Finish within 3 tool rounds.\n\n" +
-	"After exploration, output ONLY a JSON object (no markdown):\n" +
-	'{"boundaries":[{"afterIndex":N,"topic":"...","priority":"critical|high|normal|low","confidence":0.0-1.0}],"mainGoal":"...","sessionType":"implementation|review|debugging|discussion","enrichedConstraints":[...],"crossReferences":[...],"statusAssessment":{"done":[...],"inProgress":[...],"blocked":[...]},"criticalContext":[...],"keyDecisions":[...]}';
+ "You are a conversation analyst. You have deterministic extraction data and can query the raw conversation using tools.\n\n" +
+ "Your job:\n" +
+ "1. Verify/enrich the extracted boundaries (merge, split, or add as needed)\n" +
+ "2. Identify cross-topic relationships\n" +
+ "3. Find implicit constraints (user tone, frustration, urgency)\n" +
+ "4. Assess completion status accurately\n" +
+ "5. Extract the narrative arc\n\n" +
+ "Use tools BEFORE forming conclusions. Finish within 3 tool rounds.\n\n" +
+ "After exploration, output ONLY a JSON object (no markdown):\n" +
+ '{"boundaries":[{"afterIndex":N,"topic":"...","priority":"critical|high|normal|low","confidence":0.0-1.0}],"mainGoal":"...","sessionType":"implementation|review|debugging|discussion","enrichedConstraints":[...],"crossReferences":[...],"statusAssessment":{"done":[...],"inProgress":[...],"blocked":[...]},"criticalContext":[...],"keyDecisions":[...]}';

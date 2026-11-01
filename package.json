@@ -1,9 +1,9 @@
 {
 	"name": "pi-smart-compact",
-	"version": "9.7.1",
-	"description": "Verification-oriented smart compaction extension for Pi Coding Agent — deterministic extraction, exploration, synthesis, verification, metrics, and safety checks.",
+	"version": "10.7.3",
+	"description": "Smart Compact — recoverable context cleanup, verified compaction, session navigation and project memory for Pi Coding Agent.",
 	"type": "module",
-	"packageManager": "bun@1.4.0",
+	"packageManager": "bun@1.4.4",
 	"engines": {
 		"node": ">=22.19.0"
 	},
@@ -18,6 +18,10 @@
 		"./extension-api": {
 			"types": "./dist/extension-api.d.ts",
 			"default": "./dist/extension-api.js"
+		},
+		"./rtk": {
+			"types": "./dist/rtk.d.ts",
+			"default": "./dist/rtk.js"
 		}
 	},
 	"author": "Alper Tarhan <alpertarhan@gmail.com>",
@@ -35,6 +39,10 @@
 		"pi-extension",
 		"pi-coding-agent",
 		"pi-smart-compact",
+		"smart-compact",
+		"context-hygiene",
+		"session-continuity",
+		"context-recovery",
 		"smart-compaction",
 		"context-compression",
 		"eesv",
@@ -45,6 +53,9 @@
 		"dist",
 		"src/extension-api.ts",
 		"docs",
+		"!docs/findings",
+		"!docs/reports",
+		"assets",
 		"README.md",
 		"ARCHITECTURE.md",
 		"LICENSE",
@@ -54,14 +65,17 @@
 	],
 	"scripts": {
 		"sync-version": "bun run scripts/sync-version.ts",
+		"brand": "bun run scripts/render-brand.ts",
 		"prebuild": "bun run sync-version",
-		"build": "rm -rf dist && mkdir dist && bun build ./src/index.ts ./src/extension-api.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' && bun build ./scripts/provider-eval.ts ./scripts/provider-scenario-eval.ts ./scripts/telemetry-report.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' && bun x tsc --emitDeclarationOnly --outDir dist",
+		"build": "rm -rf dist && mkdir dist && bun build ./src/index.ts ./src/extension-api.ts ./src/rtk.ts --outdir ./dist --target bun --external '@earendil-works/*' --external 'typebox' --external '@resvg/resvg-js' && bun build ./src/app/mnemopi-worker.ts --outfile ./dist/mnemopi-worker.js --target bun --external '@oh-my-pi/pi-mnemopi' --external 'typebox' && bun x tsc --emitDeclarationOnly --outDir dist",
 		"test": "bun test",
 		"bench": "bun bench/hot-paths.bench.ts",
 		"gate": "bun run scripts/eval-gate.ts",
-		"provider-eval": "bun run dist/provider-eval.js",
-		"provider-eval:live": "bun run dist/provider-scenario-eval.js",
-		"telemetry-report": "bun run dist/telemetry-report.js",
+		"provider-eval": "bun run scripts/provider-eval.ts",
+		"provider-eval:live": "bun run scripts/provider-scenario-eval.ts",
+		"telemetry-report": "bun run scripts/telemetry-report.ts",
+		"task-eval": "bun run scripts/task-eval.ts",
+		"replay-eval": "bun run scripts/replay-eval.ts",
 		"compat:pi": "bun run scripts/check-pi-compat.ts",
 		"release:audit": "bun run scripts/release-audit.ts",
 		"release:check": "bun run typecheck && bun test && bun run gate && bun run bench && bun run build && bun run release:audit && bun run compat:pi latest",
@@ -72,18 +86,42 @@
 		"extensions": [
 			"./dist/index.js"
 		],
-		"image": "https://raw.githubusercontent.com/alpertarhan/pi-smart-compact/main/docs/assets/pi-smart-compact.png"
+		"image": "https://raw.githubusercontent.com/alpertarhan/pi-smart-compact/main/docs/assets/pi-smart-compact.png?v=3"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": "*",
-		"@earendil-works/pi-coding-agent": "*",
-		"@earendil-works/pi-tui": "*",
+		"@earendil-works/pi-ai": ">=0.87.1",
+		"@earendil-works/pi-coding-agent": ">=0.87.1",
+		"@earendil-works/pi-tui": ">=0.87.1",
+		"@oh-my-pi/pi-mnemopi": "18.12.6",
+		"@resvg/resvg-js": "2.6.2",
+		"bun": "1.4.4",
 		"typebox": "*"
 	},
+	"peerDependenciesMeta": {
+		"@oh-my-pi/pi-mnemopi": {
+			"optional": true
+		},
+		"@resvg/resvg-js": {
+			"optional": true
+		},
+		"bun": {
+			"optional": true
+		}
+	},
+	"overrides": {
+		"undici": "8.12.3"
+	},
 	"devDependencies": {
-		"@earendil-works/pi-server": "*",
-		"@types/bun": "1.4.2",
-		"@types/node": "^26.3.0",
+		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-coding-agent": "1.4.0",
+		"@earendil-works/pi-server": "1.1.0",
+		"@earendil-works/pi-tui": "1.4.0",
+		"@oh-my-pi/pi-mnemopi": "18.12.6",
+		"@resvg/resvg-js": "2.6.2",
+		"@types/bun": "1.4.4",
+		"@types/node": "^26.6.5",
+		"bun": "1.4.4",
+		"typebox": "1.4.3",
 		"typescript": "^7.0.2"
 	},
 	"publishConfig": {

@@ -1,5 +1,9 @@
 import type { PendingCompaction } from "../types.ts";
-export type CommitDiscardReason = "expired" | "evicted" | "aborted" | "shutdown" | "apply-error";
+/**
+ * "foreign": another compaction (Pi's own or another extension's) was applied while this candidate waited.
+ * "session-mismatch": the run was confirmed for a different session; the candidate can never commit.
+ */
+export type CommitDiscardReason = "expired" | "evicted" | "aborted" | "shutdown" | "apply-error" | "foreign" | "session-mismatch";
 export interface CompactionCommitStore {
     stage(pending: PendingCompaction): void;
     take(runId: string, sessionId: string): PendingCompaction | null;
@@ -12,7 +16,7 @@ export interface CompactionCommitStore {
  * Nothing durable is written until `take()` confirms both run and session.
  */
 export declare function createCompactionCommitStore(options?: {
-    ttlMs?: number;
+    ttlMs?: number | (() => number);
     maxEntries?: number;
     onDiscard?: (pending: PendingCompaction, reason: CommitDiscardReason) => void;
 }): CompactionCommitStore;

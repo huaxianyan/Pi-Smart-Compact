@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR cancels the superseded run; main and scheduled runs always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify:
     name: verify
@@ -27,7 +32,7 @@ jobs:
         # CI reproduces local builds deterministically (audit P0 #3).
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.0"
+          bun-version: "1.4.4"
 
       - name: Install dependencies
         # --frozen-lockfile catches accidental drift between bun.lock and
@@ -39,10 +44,17 @@ jobs:
 
       - name: Test
         run: bun test
+      - name: Adversarial gate
+        run: bun run gate
       - name: Hot-path benchmark gate
         run: bun run bench
       - name: Build
         run: bun run build
+
+      - name: Install ripgrep
+        # The audit's offline task-eval drives Pi's grep tool; without `rg` on
+        # PATH Pi would download it from GitHub, which the offline guard rejects.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
 
       - name: Packed artifact and frozen-install audit
         run: bun run release:audit
@@ -60,7 +72,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.0"
+          bun-version: "1.4.4"
 
       - name: Install locked baseline
         run: bun install --frozen-lockfile

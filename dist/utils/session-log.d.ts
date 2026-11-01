@@ -45,8 +45,6 @@ import type { LlmMessage, SessionMessageEntry } from "../types.ts";
  * on every call so tests can mutate process.env between cases.
  */
 export declare function _getMaxEntriesForTests(): number;
-/** @internal Test-only: drop both module caches between cases. */
-export declare function __resetSessionLogCachesForTests(): void;
 /**
  * Check if any message in the array has been truncated by pi-toolkit.
  */

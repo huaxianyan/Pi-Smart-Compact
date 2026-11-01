@@ -14,12 +14,11 @@ import {
 	repairSummaryDeterministically,
 	formatVerificationGap,
 	isDeterministicallyPatchable,
-	isSummaryAcceptable,
 	verificationFailureMessage,
 	VerificationGateError,
 } from "../../phases/verify.ts";
 import { showProgressOverlay } from "../../ui/overlays.ts";
-import * as log from "../../utils/logger.ts";
+import { errorDetail, recordIssue } from "../../utils/issues.ts";
 import { MODE_POLICIES, modeFromLegacyProfile } from "../mode-policy.ts";
 import { assembleFallback } from "../../phases/synthesize.ts";
 import { resolveStageAuth } from "../stage-auth.ts";
@@ -48,7 +47,7 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 	let verification = verifySummary(
 		summary,
 		extraction,
-		rc.previousState,
+		rc.verificationContinuity,
 		evidence,
 	);
 	const initialScore = verification.score;
@@ -94,7 +93,7 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 			summary,
 			verification,
 			extraction,
-			rc.previousState,
+			rc.verificationContinuity,
 			evidence,
 		);
 		summary = repaired.summary;
@@ -129,24 +128,25 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 				rc.services,
 			);
 		} catch (error) {
-			log.debugError(
-				"LLM verification patch used deterministic fallback",
+			recordIssue({
+				key: "verify.patch",
+				message: "Semantic repair of verification gaps failed (" + errorDetail(error) + "); deterministic repair was used and the verification gate still applies.",
 				error,
-			);
+			});
 		}
 		if (summary !== beforePatch) {
 			llmPatched = true;
 			verification = verifySummary(
 				summary,
 				extraction,
-				rc.previousState,
+				rc.verificationContinuity,
 				evidence,
 			);
 			const repaired = repairSummaryDeterministically(
 				summary,
 				verification,
 				extraction,
-				rc.previousState,
+				rc.verificationContinuity,
 				evidence,
 			);
 			summary = repaired.summary;
@@ -167,19 +167,20 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 			extraction,
 			evidence.steering,
 			summaryBudgetTokens,
-			rc.previousState,
+			rc.verificationContinuity,
+			rc.factOverrides,
 		);
 		let deterministicVerification = verifySummary(
 			deterministic,
 			extraction,
-			rc.previousState,
+			rc.verificationContinuity,
 			evidence,
 		);
 		const repaired = repairSummaryDeterministically(
 			deterministic,
 			deterministicVerification,
 			extraction,
-			rc.previousState,
+			rc.verificationContinuity,
 			evidence,
 		);
 		deterministic = repaired.summary;
@@ -199,12 +200,14 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 	}
 
 	const failure = verificationFailureMessage(verification);
-	if (failure && !isSummaryAcceptable(verification))
+	if (failure) {
+		recordIssue({ key: "verify.gate", message: failure });
 		throw new VerificationGateError(
 			verification,
 			initialScore,
 			"post-synthesis",
 		);
+	}
 	showProgressOverlay(rc.ctx, {
 		phase: 4,
 		phaseName: "Verify",

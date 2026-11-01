@@ -4,7 +4,7 @@ export interface SmartCompactInput {
     mode?: CompactionMode;
     verbose: boolean;
     dryRun: boolean;
-    action?: "metrics" | "dashboard" | "restore" | "loops" | "settings" | "forget";
+    action?: "metrics" | "dashboard" | "restore" | "loops" | "settings" | "forget" | "storage" | "trim" | "handoff";
     focus?: string;
     note?: string;
     maxLlmCalls?: number;

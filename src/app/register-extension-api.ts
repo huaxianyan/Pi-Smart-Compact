@@ -20,7 +20,11 @@ export interface ExtensionApiDependencies {
 
 export function registerExtensionApi(pi: ExtensionAPI, dependencies: ExtensionApiDependencies): void {
   const active = new Map<string, AbortController>();
-  pi.events.on(SMART_COMPACT_REQUEST, (data) => {
+  // The recovery channel rides the host event bus. A host that does not expose
+  // one simply cannot request recovery; the rest of Smart Compact must still
+  // register instead of failing at construction. Same guard upstream uses in
+  // hindsight-tracking.ts and compaction-delivery.ts.
+  if (typeof pi.events?.on === "function") pi.events.on(SMART_COMPACT_REQUEST, (data) => {
     const request = data as SmartCompactRequest;
     if (!request.accept()) return;
     void recover(request).then(request.respond, (error) => request.respond({
@@ -35,7 +39,7 @@ export function registerExtensionApi(pi: ExtensionAPI, dependencies: ExtensionAp
   async function recover(request: SmartCompactRequest): Promise<SmartCompactResult> {
     const { ctx, signal } = request;
     const sessionId = resolveSessionId(ctx);
-    if (active.has(sessionId) || dependencies.runLock.isRunning(sessionId) || dependencies.pendingRef.peek(sessionId)) {
+    if (active.has(sessionId) || dependencies.runLock.isSessionActive(sessionId) || dependencies.pendingRef.peek(sessionId)) {
       return { status: "busy" };
     }
     if (!ctx.isIdle() || isUnresolvedSessionId(sessionId) || !ctx.model) {

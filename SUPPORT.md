@@ -1,7 +1,7 @@
 # Support
 
-For usage questions or bug reports specific to `pi-smart-compact`, open an
-issue in this repository:
+For usage questions or bug reports about **Smart Compact** (the
+`pi-smart-compact` package), open an issue in this repository:
 
 <https://github.com/alpertarhan/pi-smart-compact/issues>
 
@@ -10,21 +10,38 @@ use the upstream Pi repository:
 
 <https://github.com/earendil-works/pi>
 
+Start with the [user guide](./docs/guide.md) and
+[configuration reference](./docs/configuration.md).
+
 ## Before you file
 
 Helpful things to include:
 
-- `pi-smart-compact` version (from `package.json` or `/smart-compact` output)
+- `pi-smart-compact` version (shown in the `/smart-compact` command
+  description, or in `package.json`), and whether it is a published npm
+  release or a source checkout
 - Pi Coding Agent version
-- the integration surface used (`/smart-compact`, `smart_compact`, or auto-trigger)
+- the surface involved: `/smart-compact` Home or a subcommand, an agent tool
+  (`smart_tools`, `smart_navigation`, `smart_compact`, `smart_context`,
+  `smart_recall` or `smart_save_memory`), or automatic compaction (and which
+  `autoTriggerStrategy`)
+- the selected memory backend, if memory is involved
+- other context-editing or compaction extensions you have loaded; Smart
+  Compact warns at session start when it recognizes one
 - relevant non-secret `smartCompact` configuration
 - redacted error output or logs
 
 ## Self-service diagnostics
 
-- `/smart-compact metrics` — profile / provider comparison from the metrics log
-- `/smart-compact dashboard` — interactive TUI dashboard (overview, latest run, current session, recent runs)
-- `/smart-compact dashboard` → *Write HTML dashboard* — a local `~/.pi/agent/.cache/smart-compact-report.html`
+- `/smart-compact` → **Status & help** → **Readiness & details**: local
+  readiness and effective settings; nothing is sent to a provider
+- `/smart-compact metrics`: effective state, recent issues and the metrics
+  report
+- `/smart-compact dashboard`: interactive dashboard; it can also write a local
+  HTML report
+- `/smart-compact storage`: read-only inventory of saved tool output; nothing
+  is deleted
+- Restart Pi with `DEBUG=smart-compact` to see full stacks for a failure
 
-For security issues, see [`SECURITY.md`](./SECURITY.md) — please do **not**
+For security issues, see [`SECURITY.md`](./SECURITY.md); please do **not**
 open a public issue for vulnerabilities.

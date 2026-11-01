@@ -31,6 +31,6 @@ export interface SmartCompactPolicy {
     update(patch: Partial<DesiredSmartCompactPolicy>, ctx: ExtensionContext): SmartCompactPolicyUpdate;
     reset(field: SmartCompactPolicyField, ctx: ExtensionContext): SmartCompactPolicyUpdate;
 }
-export declare function createSmartCompactPolicy(pi: ExtensionAPI): SmartCompactPolicy;
+export declare function createSmartCompactPolicy(pi: ExtensionAPI, syncTools: () => void): SmartCompactPolicy;
 export {};
 //# sourceMappingURL=smart-compact-policy.d.ts.map

@@ -22,11 +22,13 @@
  * when recreated for each compaction. Tests keep isolated defaults.
  *
  * Services that are stateless or already inject through their own seam
- * (`LlmClient`, `Clock`, file system helpers in `infra/fs.ts`) are exposed via
- * the container for convenience but never mutated through it.
+ * (`Clock`, file system helpers in `infra/fs.ts`) are exposed via the
+ * container for convenience but never mutated through it. The LLM client is
+ * built from the requesting session's model runtime, never a process global.
  */
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { Clock } from "./clock.ts";
-import type { LlmClient } from "./llm-client.ts";
+import type { LlmClient, LlmModelRuntime } from "./llm-client.ts";
 import type { CompactConfig, LLMCallMetric } from "../types.ts";
 import { TokenCalibrationStore } from "../utils/tokens.ts";
 import { SecretScrubber } from "../domain/scrub.ts";
@@ -139,11 +141,19 @@ export interface SmartCompactServices {
     codexWatchdogMs: number;
     /** Per-run prompt-cache namespace for providers that support prompt caching. */
     compactSessionId: string;
+    /** Whether a route authenticates via OAuth (subscription); stamps the metrics billing basis. */
+    isUsingOAuth?: (model: Model<Api>) => boolean;
 }
 export declare function makeCompactSessionId(): string;
-export declare function createServices(overrides?: Partial<SmartCompactServices>): SmartCompactServices;
+/** Construction inputs: service overrides plus the session model runtime requests go through. */
+export type ServiceOverrides = Partial<SmartCompactServices> & {
+    modelRuntime?: LlmModelRuntime;
+};
+export declare function createServices(overrides?: ServiceOverrides): SmartCompactServices;
 /** Production run services: per-run metrics/budgets, shared bounded provider knowledge. */
-export declare function createProductionServices(overrides?: Partial<SmartCompactServices>): SmartCompactServices;
+export declare function createProductionServices(overrides?: ServiceOverrides): SmartCompactServices;
+/** @internal Test-only: forget process-wide calibration learned from reported usage. */
+export declare function __resetProcessCalibrationForTests(): void;
 export declare function getDefaultServices(): SmartCompactServices;
 /** Swap the default container; tests use this to inject a clock/llm. */
 export declare function setDefaultServices(services: SmartCompactServices): void;

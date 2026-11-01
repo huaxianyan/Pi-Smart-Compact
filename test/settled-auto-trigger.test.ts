@@ -45,7 +45,25 @@ describe("settled auto-trigger host handoff", () => {
     }
   });
 
-  it("deduplicates concurrent requests and cools down only after success", async () => {
+  it("measures the start percent against maxContextTokens when it is below the model window", async () => {
+    const requests: unknown[] = [];
+    const ctx = context({
+      model: { provider: "openai", id: "large", contextWindow: 1_000_000 },
+      getContextUsage: () => ({ tokens: 180_000, contextWindow: 1_000_000, percent: 18 }),
+      compact: (options: unknown) => requests.push(options),
+    });
+    // 18% of the model window stays below the 60% gate without a cap.
+    await createSettledAutoTrigger().request(ctx, config({ minContextPercent: 60 }));
+    expect(requests).toHaveLength(0);
+    // 180k of a 200k cap is 90% ≥ 60%.
+    void createSettledAutoTrigger().request(ctx, config({ minContextPercent: 60, maxContextTokens: 200_000 }));
+    expect(requests).toHaveLength(1);
+    // 180k of a 400k cap is 45% < 60%.
+    await createSettledAutoTrigger().request(ctx, config({ minContextPercent: 60, maxContextTokens: 400_000 }));
+    expect(requests).toHaveLength(1);
+  });
+
+  it("deduplicates concurrent requests and cools down after success", async () => {
     let now = 1_000;
     const callbacks: Array<{ onComplete?: (result: unknown) => void; onError?: (error: Error) => void }> = [];
     const ctx = context({ compact: (options: any) => callbacks.push(options) });
@@ -67,19 +85,97 @@ describe("settled auto-trigger host handoff", () => {
     await afterCooldown;
   });
 
-  it("releases a failed request for the next settled event", async () => {
-    const callbacks: Array<{ onComplete?: (result: unknown) => void; onError?: (error: Error) => void }> = [];
-    const ctx = context({ compact: (options: any) => callbacks.push(options) });
-    const trigger = createSettledAutoTrigger();
+  it.each(["settled", "background"] as const)("throttles failed %s attempts, including throws and missing callbacks", async autoTriggerStrategy => {
+    for (const failure of ["callback", "throw", "watchdog"] as const) {
+      let now = 1_000;
+      const callbacks: Array<{ onComplete?: (result: unknown) => void; onError?: (error: Error) => void }> = [];
+      const ctx = context({ compact: (options: any) => {
+        callbacks.push(options);
+        if (callbacks.length > 1) { options.onComplete?.({}); return; }
+        // Cooldown starts after the failed work, not before its provider latency.
+        now += 30_000;
+        if (failure === "throw") throw new Error("host rejected compaction");
+        if (failure === "callback") options.onError?.(new Error("host rejected compaction"));
+      } });
+      const trigger = createSettledAutoTrigger({ now: () => now, watchdogMs: 10 });
+      const cfg = config({ autoTriggerStrategy });
 
-    const failed = trigger.request(ctx, config());
-    callbacks[0].onError?.(new Error("host rejected compaction"));
-    await failed;
+      await trigger.request(ctx, cfg);
+      expect(callbacks, failure).toHaveLength(1);
+      await trigger.request(ctx, cfg);
+      expect(callbacks, failure).toHaveLength(1);
 
-    const retry = trigger.request(ctx, config());
-    expect(callbacks).toHaveLength(2);
-    callbacks[1].onComplete?.({});
-    await retry;
+      now += SETTLED_TRIGGER_COOLDOWN_MS - 1;
+      await trigger.request(ctx, cfg);
+      expect(callbacks, failure).toHaveLength(1);
+      // A late host callback must not extend an already-finished attempt's cooldown.
+      callbacks[0].onComplete?.({});
+      now++;
+      await trigger.request(ctx, cfg);
+      expect(callbacks, failure).toHaveLength(2);
+    }
+  });
+
+  it("reports a pending host honestly and never suggests manual retry while the host is busy (A11)", async () => {
+    const notices: Array<{ message: string; severity: string }> = [];
+    let completed = false;
+    let compacting = false;
+    let resolveHost!: () => void;
+    const hostFinished = new Promise<void>((resolve) => { resolveHost = resolve; });
+    let requests = 0;
+    const trigger = createSettledAutoTrigger({ watchdogMs: 10 });
+    const ctx = context({
+      sessionManager: { getSessionId: () => "settled-busy-host" },
+      hasUI: true,
+      ui: { notify: (message: string, severity: string) => notices.push({ message, severity }) },
+      isIdle: () => !compacting,
+      compact: (options: any) => {
+        requests++;
+        compacting = true;
+        setTimeout(() => {
+          completed = true;
+          compacting = false;
+          trigger.noteCompaction("settled-session");
+          options.onComplete({});
+          resolveHost();
+        }, 40);
+      },
+    });
+    const cfg = config();
+
+    await trigger.request(ctx, cfg);
+
+    // The watchdog fired while the host was still compacting: the notice
+    // must describe pending work, not a missing result, and must not send
+    // the user to a manual retry that would collide with the busy host.
+    expect(completed).toBe(false);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].message).not.toMatch(/did not report/);
+    expect(notices[0].message).not.toContain("Run /smart-compact manually");
+    expect(notices[0].message).toMatch(/still busy/i);
+
+    // Cooldown applies: no duplicate request while the host finishes.
+    await trigger.request(ctx, cfg);
+    expect(requests).toBe(1);
+
+    await hostFinished;
+    expect(completed).toBe(true);
+    expect(requests).toBe(1);
+  });
+
+  it("still suggests manual retry after a silent watchdog on an idle host (A11)", async () => {
+    const notices: Array<{ message: string; severity: string }> = [];
+    const trigger = createSettledAutoTrigger({ watchdogMs: 10 });
+    const ctx = context({
+      sessionManager: { getSessionId: () => "settled-idle-host" },
+      hasUI: true,
+      ui: { notify: (message: string, severity: string) => notices.push({ message, severity }) },
+      compact: () => { /* host never calls back and is not busy */ },
+    });
+    await trigger.request(ctx, config());
+    expect(notices).toHaveLength(1);
+    expect(notices[0].message).toMatch(/did not report/);
+    expect(notices[0].message).toContain("Run /smart-compact manually");
   });
 
   it("uses confirmed host compaction as cooldown and clears session state on shutdown", async () => {

@@ -8,20 +8,73 @@ import type { CompressionProfile, ProfileConfig } from "./types.ts";
  * `package.json#version`. Do not hand-edit this line for releases; bump
  * package.json and run `bun run sync-version`.
  */
-export declare const VERSION = "9.7.1";
+export declare const VERSION = "10.7.3";
+/**
+ * Opt-in components that are not installed with the extension: optional peer
+ * dependencies in package.json, pinned to the versions the release audit
+ * exercises. The audit fails if these drift from the manifest.
+ */
+export declare const OPTIONAL_COMPONENTS: {
+    readonly mnemopi: {
+        readonly name: "@oh-my-pi/pi-mnemopi";
+        readonly version: "18.12.6";
+        readonly enables: "Mnemopi memory store";
+    };
+    readonly bun: {
+        readonly name: "bun";
+        readonly version: "1.4.4";
+        readonly enables: "Mnemopi worker runtime when no Bun 1.3.14+ is on PATH";
+    };
+    readonly resvg: {
+        readonly name: "@resvg/resvg-js";
+        readonly version: "2.6.2";
+        readonly enables: "image snapshots";
+    };
+};
 export declare const CHARS_PER_TOKEN = 3.8;
 export declare const MIN_COMPACTION_SAVING_RATIO = 0.1;
 export declare const ESTIMATOR_ROUNDING_TOLERANCE_TOKENS = 1;
+/** Share of the planned post-compaction target a verified summary may overshoot. */
+export declare const YIELD_TARGET_TOLERANCE_RATIO = 0.05;
 /** Space reserved in the window plan for deterministic verification/state sections added after LLM synthesis. */
 export declare const POST_SUMMARY_RESERVE_RATIO = 0.25;
 /** Maximum number of open-loop records retained in durable continuity state. */
 export declare const MAX_STATE_OPEN_LOOPS = 25;
-/** Auto compaction must yield to native recovery instead of blocking the host indefinitely. */
-export declare const AUTO_TRIGGER_TIMEOUT_CAP_MS = 60000;
+/**
+ * Hard ceiling for an automatic run. Large windows need materially more than a
+ * minute: a 270K-token context splits into several batches, and aborting mid-run
+ * throws away every completed batch and hands the turn to native compaction.
+ * The ceiling still exists so a wedged provider cannot block the host forever.
+ */
+export declare const AUTO_TRIGGER_TIMEOUT_CAP_MS = 300000;
 /** Provider-call ceiling for the synchronous session_before_compact hook. */
 export declare const AUTO_TRIGGER_MAX_LLM_CALLS = 4;
 /** Suppress proactive settled-trigger churn after any confirmed compaction. */
 export declare const SETTLED_TRIGGER_COOLDOWN_MS: number;
+/**
+ * Minimum uncached prompt tokens (input + cacheWrite) for a host request to
+ * count as a prompt-cache rebuild. Anthropic caches need >=1024-4096-token
+ * prefixes and every turn legitimately re-sends the new tail uncached (tool
+ * results, user input: routinely a few thousand tokens); 16k sits clearly
+ * above that tail noise while staying far below a real prefix rebuild.
+ */
+export declare const REBUILD_MIN_TOKENS = 16384;
+/** Consecutive large zero-read requests before a route is flagged cache-inactive. */
+export declare const CACHE_INACTIVE_ROUTE_MIN_REQUESTS = 3;
+/** Prompt floor for the inactive-route streak; covers every documented provider minimum. */
+export declare const CACHE_INACTIVE_ROUTE_MIN_PROMPT_TOKENS = 4096;
+/** First-party Anthropic long-context pricing starts above this many prompt tokens. */
+export declare const LONG_CONTEXT_PRICING_THRESHOLD_TOKENS = 200000;
+/**
+ * Further requests within which a warm-cache automatic trim must pay back its
+ * prefix rewrite; sessions rarely run that many requests without another prefix change.
+ */
+export declare const AUTO_TRIM_BREAK_EVEN_REQUESTS = 24;
+/**
+ * Expected savings (USD) a prompt-cache refresh must reach to be worth sending;
+ * Pi warms when `continuationProbability * missCost - warmCost >= 0.05` (Pi docs/settings.md).
+ */
+export declare const CACHE_WARMING_MIN_SAVINGS_USD = 0.05;
 /** Positive per-run bounds shared by CLI and tool arguments; config separately allows 0 as a mode-derived sentinel. */
 export declare const BUDGET_LIMITS: {
     readonly CALLS: {
@@ -47,8 +100,15 @@ export declare const PROFILE_NUMERIC_BOUNDS: {
     readonly singlePassMaxTokens: readonly [1000, 500000];
     readonly batchMaxTokens: readonly [1000, 500000];
 };
+/** Home warns above this model window when maxContextTokens is off. */
+export declare const LARGE_CONTEXT_WINDOW_TOKENS = 400000;
 export declare const CONFIG_NUMERIC_LIMITS: {
     readonly minContextPercent: {
+        readonly min: 0;
+        readonly max: 100;
+        readonly integer: false;
+    };
+    readonly prepareContextPercent: {
         readonly min: 0;
         readonly max: 100;
         readonly integer: false;
@@ -68,6 +128,12 @@ export declare const CONFIG_NUMERIC_LIMITS: {
         readonly max: 1000000;
         readonly integer: true;
     };
+    readonly maxContextTokens: {
+        readonly min: 16384;
+        readonly max: 2000000;
+        readonly integer: true;
+        readonly zeroOrRange: true;
+    };
     readonly codexMaxCallMs: {
         readonly min: 5000;
         readonly max: 3600000;
@@ -85,6 +151,32 @@ export declare const CONFIG_NUMERIC_LIMITS: {
         readonly max: 3600000;
         readonly integer: true;
     };
+    readonly pendingFingerprintTtlMs: {
+        readonly min: 60000;
+        readonly max: 3600000;
+        readonly integer: true;
+        readonly zeroOrRange: true;
+    };
+    readonly hindsightTimeoutMs: {
+        readonly min: 1000;
+        readonly max: 60000;
+        readonly integer: true;
+    };
+    readonly hindsightRecallMaxTokens: {
+        readonly min: 128;
+        readonly max: 4096;
+        readonly integer: true;
+    };
+    readonly autoTrimBreakEvenRequests: {
+        readonly min: 1;
+        readonly max: 1000;
+        readonly integer: true;
+    };
+    readonly autoTrimMinSavingChars: {
+        readonly min: 0;
+        readonly max: 10000000;
+        readonly integer: true;
+    };
 };
 export declare const DEFAULT_CONFIG: {
     mode: "auto";
@@ -96,13 +188,16 @@ export declare const DEFAULT_CONFIG: {
     summaryThinkingLevel: "minimal";
     segmentationThinkingLevel: "minimal";
     agentToolAccess: "inherit";
+    toolLoading: "eager";
     autoTrigger: boolean;
     showStatus: boolean;
-    autoTriggerStrategy: "native-hook";
+    autoTriggerStrategy: "settled";
     autoTriggerTimeoutMs: number;
     backupEnabled: boolean;
     backupDir: string;
     minContextPercent: number;
+    prepareContextPercent: number | null;
+    maxContextTokens: number;
     requireApproval: boolean;
     scrubSecrets: boolean;
     scrubPii: boolean;
@@ -111,9 +206,32 @@ export declare const DEFAULT_CONFIG: {
     codexMaxCallMs: number;
     maxLatencyMs: number;
     pendingTtlMs: number;
+    pendingFingerprintTtlMs: number;
     focusWeighting: boolean;
     zeroCallEnabled: boolean;
     contextGraphEnabled: boolean;
+    compactionEngines: Array<"eesv" | "native">;
+    memoryBackend: "local";
+    hindsightBaseUrl: string | null;
+    hindsightBankId: string | null;
+    hindsightApiKeyEnv: string | null;
+    hindsightTimeoutMs: number;
+    hindsightRecallMaxTokens: number;
+    mnemopiDataDir: string | null;
+    visualArchiveEnabled: boolean;
+    artifactOffloadEnabled: boolean;
+    contextHygieneEnabled: boolean;
+    contextPressureOnly: boolean;
+    providerContextEditing: "off";
+    autoTrimBreakEvenRequests: number;
+    autoTrimMinSavingChars: number;
+    contextNavigationEnabled: boolean;
+    contextRecallEnabled: boolean;
+    contextPivotEnabled: boolean;
+    contextAnchorCacheEnabled: boolean;
+    contextAnchorStatusEnabled: boolean;
+    contextGuidanceEnabled: boolean;
+    promptCacheRoutingEnabled: boolean;
     telemetryChannel: "stable";
     adaptiveDamageFeedback: boolean;
     onlineDamageMonitor: boolean;
@@ -217,10 +335,22 @@ export declare const MAX_TOOL_OUTPUT_CHARS = 800;
 export declare const MAX_EXPLORER_OUTPUT_CHARS = 12000;
 /** Shell-output patterns signalling a likely error even in a non-`isError` result. */
 export declare const LIKELY_ERROR_RE: RegExp;
+/** Conservative risk lines kept in a trim marker's digest (errors, failures, warnings, exits). */
+export declare const TRIM_RISK_LINE_RE: RegExp;
+/** Trim marker digest bounds: line 1 always kept; later lines dropped from the end to fit. */
+export declare const TRIM_MARKER_MAX_LINES = 6;
+export declare const TRIM_MARKER_MAX_CHARS = 400;
 /** How far forward to look for a retry of the same tool after an error. */
 export declare const ERROR_RETRY_WINDOW = 6;
 /** How far forward to look for that retry's resolving (non-error) result. */
 export declare const ERROR_RESOLVE_WINDOW = 10;
+/** Handoff seed cap (same as a pivot carryover); recall gets a bounded share. */
+export declare const HANDOFF_MAX_CHARS = 16000;
+export declare const HANDOFF_RECALL_MAX_CHARS = 6000;
+export declare const HANDOFF_RECALL_LIMIT = 5;
+/** Parent sessions `smart_context scope=lineage` follows through `parentSession` headers, and the largest file it loads. */
+export declare const LINEAGE_MAX_DEPTH = 3;
+export declare const LINEAGE_MAX_FILE_BYTES: number;
 export declare const METRICS_BUFFER_MAX = 200;
 export declare const RUNTIME_LOG_MAX_BYTES: number;
 export declare const CONFIG_KEY = "smartCompact";

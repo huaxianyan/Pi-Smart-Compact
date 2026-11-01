@@ -1,6 +1,7 @@
 /**
  * Core type definitions for the Smart Compact extension.
  */
+import type { NativeState } from "./infra/native-protocol.ts";
 import type { Model, Api, ThinkingLevel, ProviderHeaders } from "@earendil-works/pi-ai";
 import type { SectionKind } from "./domain/summary-schema.ts";
 /** Session type classification */
@@ -9,7 +10,7 @@ export type CompressionProfile = "light" | "balanced" | "aggressive";
 export type EffectiveCompactionMode = "fast" | "balanced" | "thorough";
 /** `aggressive` is accepted only as a legacy input and resolves to Fast. */
 export type CompactionMode = "auto" | EffectiveCompactionMode | "aggressive";
-export type AutoTriggerStrategy = "native-hook" | "settled";
+export type AutoTriggerStrategy = "native-hook" | "settled" | "background";
 type AgentToolAccess = "inherit" | "enabled" | "disabled";
 export interface ProfileConfig {
     summaryBudgetTokens: number;
@@ -19,6 +20,9 @@ export interface ProfileConfig {
     singlePassMaxTokens: number;
     batchMaxTokens: number;
 }
+export type MemoryBackend = "local" | "hindsight" | "mnemopi";
+/** Summary engine: EESV pipeline, or the current provider's native compaction. */
+export type CompactionEngine = "eesv" | "native";
 export interface CompactConfig {
     /** Execution preset. `profile` remains the backwards-compatible compression detail knob. */
     mode: CompactionMode;
@@ -31,15 +35,29 @@ export interface CompactConfig {
     segmentationThinkingLevel: ThinkingLevel | null;
     /** Whether Smart Compact inherits, enables, or disables its agent tool. */
     agentToolAccess: AgentToolAccess;
+    /** Model-visible tool groups: on demand, all permitted groups, or none. */
+    toolLoading: "lazy" | "eager" | "off";
     autoTrigger: boolean;
     /** Show the policy status line in Pi's footer. */
     showStatus: boolean;
-    /** Native hook participation, or an opt-in proactive request after an idle agent run. */
+    /** Native hook, idle pressure trigger, or early background preparation plus idle trigger. */
     autoTriggerStrategy: AutoTriggerStrategy;
     autoTriggerTimeoutMs: number;
     backupEnabled: boolean;
     backupDir: string;
     minContextPercent: number;
+    /**
+     * Early cleanup / optional background preparation threshold.
+     * null = Auto (adaptive lead before minContextPercent). An explicit value must
+     * be below the effective minContextPercent, which stays the apply gate.
+     */
+    prepareContextPercent: number | null;
+    /**
+     * 0 = off. Otherwise automatic trigger/preparation percentages use
+     * min(model.contextWindow, maxContextTokens); hard headroom checks do not.
+     */
+    maxContextTokens: number;
+    /** Approval gate: manual compaction apply, early anchor cleanup and project-memory save/resolve dialogs. false = standing approval, no dialogs. */
     requireApproval: boolean;
     scrubSecrets: boolean;
     scrubPii: boolean;
@@ -51,9 +69,72 @@ export interface CompactConfig {
     maxLatencyMs: number;
     /** Staged-summary retention before commit; default 5 minutes. */
     pendingTtlMs: number;
+    /**
+     * 0 = off. Otherwise a staged summary may serve past `pendingTtlMs`, until
+     * this ceiling, while its captured context fingerprint still matches the live
+     * branch; the consume-site revalidation runs regardless. Default 0.
+     */
+    pendingFingerprintTtlMs: number;
     focusWeighting: boolean;
     zeroCallEnabled: boolean;
     contextGraphEnabled: boolean;
+    /**
+     * Ordered, unique, non-empty engine priority; the first success applies.
+     * Independent of mode (fast/balanced/thorough).
+     */
+    compactionEngines: CompactionEngine[];
+    /** Memory destination for confirmed save/recall tools. `local` never contacts a server. */
+    memoryBackend: MemoryBackend;
+    /** Hindsight API base URL (https; plain http only for loopback). */
+    hindsightBaseUrl: string | null;
+    /** Hindsight memory bank; required explicitly, never inferred. */
+    hindsightBankId: string | null;
+    /** Name of the environment variable holding the Hindsight API key; never the key itself. */
+    hindsightApiKeyEnv: string | null;
+    /** Hindsight request timeout. */
+    hindsightTimeoutMs: number;
+    /** Server-side recall budget. */
+    hindsightRecallMaxTokens: number;
+    /**
+     * Mnemopi data directory: absolute or `~/` path. null = the dedicated
+     * Smart Compact-owned directory under Pi's agent directory.
+     */
+    mnemopiDataDir: string | null;
+    /** Experimental: add bounded bitmap evidence beside the verified text summary. */
+    visualArchiveEnabled: boolean;
+    /** Spill oversized safe tool results before they enter model context. */
+    artifactOffloadEnabled: boolean;
+    /** Recoverable context hygiene, independent of automatic compaction. */
+    contextHygieneEnabled: boolean;
+    /** Require pressure for automatic cleanup and agent-requested history reduction; human commands bypass it. */
+    contextPressureOnly: boolean;
+    /** Anthropic server-side context editing for the session model (default off): clears old shell/research tool results, optionally old thinking. */
+    providerContextEditing: "off" | "tool-results" | "tool-results-and-thinking";
+    /**
+     * Warm-cache payback ceiling (requests) for an automatic trim; batches beyond
+     * this payback wait for a cold prompt cache instead of rewriting a warm one.
+     * Default 24.
+     */
+    autoTrimBreakEvenRequests: number;
+    /**
+     * Minimum net characters an automatic trim batch must save to run at all.
+     * 0 permits arbitrarily small safe batches. Default 16384.
+     */
+    autoTrimMinSavingChars: number;
+    /** Session anchors and context navigation; independent of recoverable cleanup. */
+    contextNavigationEnabled: boolean;
+    contextRecallEnabled: boolean;
+    contextPivotEnabled: boolean;
+    contextAnchorCacheEnabled: boolean;
+    contextAnchorStatusEnabled: boolean;
+    /** Read the context-management guide only on explicit demand. */
+    contextGuidanceEnabled: boolean;
+    /**
+     * Stamp a stable per-session `prompt_cache_key` on OpenAI-shaped payloads so
+     * same-prefix requests route to one inference engine. Off by default: strict
+     * gateways may reject the field; enable for GPT-5.6+ / Azure routes.
+     */
+    promptCacheRoutingEnabled: boolean;
     telemetryChannel: "stable" | "canary";
     adaptiveDamageFeedback: boolean;
     onlineDamageMonitor: boolean;
@@ -75,6 +156,37 @@ export interface ProviderCapabilities {
     singlePassTokenMultiplier: number;
     /** Whether provider can receive non-text blocks directly. We currently summarize metadata only. */
     multimodal: "native" | "metadata-only";
+    /** Documented prompt-cache control surface; see ProviderCacheCaps. */
+    cacheControl: ProviderCacheCaps;
+}
+/**
+ * Prompt-cache control surface documented by each provider.
+ *
+ * Values record provider documentation, not pi-ai wiring: a capability stored
+ * here is not automatically exercised. Unverified providers keep the implicit
+ * default so existing behavior (and anchor-cache rewriting) is never lost on
+ * a guess.
+ */
+export interface ProviderCacheCaps {
+    /**
+     * Where the provider honors explicit cache markers:
+     *  - "explicit-message": per-message cache_control breakpoints (Anthropic native)
+     *  - "explicit-toplevel": only a top-level cache_control field is honored; message-level markers are ignored (Moonshot's Anthropic-compatible endpoint)
+     *  - "implicit": automatic prefix caching, no marker contract documented
+     *  - "none": no prompt caching documented
+     */
+    level: "explicit-message" | "explicit-toplevel" | "implicit" | "none";
+    /** Wire-selectable cache TTLs (ms); empty when the provider owns retention. */
+    ttlOptionsMs: readonly number[];
+    /** Cache-write price multiplier over base input for the priciest selectable tier; 1 = no premium. */
+    writeMultiplier: number;
+    /** Typical cache-read multiplier over base input; 1 = no discount. Informational — economics use model cost. */
+    readMultiplier: number;
+    /** Request field/header documented to improve routing stickiness; null when none is documented. */
+    routingKey: {
+        location: "body" | "header";
+        name: string;
+    } | null;
 }
 export interface LLMCallMetric {
     phase: "probe" | "explore" | "explore-loop" | "explore-retry" | "explore-direct" | "single-pass" | "batch" | "assemble" | "patch";
@@ -90,6 +202,8 @@ export interface LLMCallMetric {
     failureKind?: TelemetryFailureKind;
     /** True when provider usage was absent or partial and local estimates were used. */
     usageEstimated?: boolean;
+    /** How this route authenticates; subscription usage must never be priced at API rates. */
+    billing?: "api" | "subscription";
 }
 export type ProviderRouteStage = "explore" | "synthesize" | "verify";
 export interface ProviderRouteMetric {
@@ -101,7 +215,14 @@ export interface ProviderRouteMetric {
     failures?: Partial<Record<TelemetryFailureKind, number>>;
     avgLatencyMs: number;
     inputTokens: number;
+    /** Provider prompt-cache tokens, kept split from input/output for quota honesty. */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
     outputTokens: number;
+    /** "estimated" when any contributing call lacked provider usage. */
+    usageBasis?: "reported" | "estimated";
+    /** Subscription (OAuth) routes are not billable at API prices. */
+    billing?: "api" | "subscription";
     /** Stage-local summary quality before deterministic/LLM repair. */
     qualityScore?: number;
     qualityBasis?: "pre-repair-verification";
@@ -114,6 +235,9 @@ export type TelemetryFailureKind = "cancelled" | "timeout" | "rate-limit" | "aut
 export type VerificationGateStage = "post-synthesis" | "post-state";
 export interface CompactMetricsEntry {
     ts: string;
+    /** Content-free estimates; actual image billing is charged on later agent requests. */
+    visualTokens?: number;
+    visualFrames?: number;
     /** Local-only lifecycle id used to join post-compaction observations. */
     runId?: string;
     metricsSchemaVersion?: 2;
@@ -140,7 +264,16 @@ export interface CompactMetricsEntry {
     model?: string;
     provider?: string;
     runType?: "manual" | "auto" | "tool";
-    status?: "success" | "timeout" | "error" | "dry-run" | "cancelled";
+    /** "discarded" = speculative preparation completed but was never applied. */
+    status?: "success" | "timeout" | "error" | "dry-run" | "cancelled" | "discarded";
+    /** Set when this run's summary came from speculative background preparation. */
+    preparation?: "background";
+    /** Why prepared work was dropped; only meaningful with status "discarded". */
+    preparationDiscardReason?: PreparationDiscardReason;
+    /** Creation-to-ready latency of the reused preparation, when known. */
+    preparationReadyMs?: number;
+    /** Ready-to-apply wait of the reused preparation, when known. */
+    preparationWaitMs?: number;
     contextPercent?: number;
     toolPercent?: number;
     tokensBefore?: number;
@@ -179,7 +312,10 @@ export interface CompactMetricsEntry {
     /** Durable post-apply side effects; compaction itself may still have succeeded. */
     persistenceStatus?: "complete" | "partial";
     persistenceFailures?: string[];
+    engineAttempts?: EngineAttempt[];
 }
+/** Content-free reasons speculative preparation can be dropped unused. */
+export type PreparationDiscardReason = "ttl" | "branch" | "config" | "session" | "superseded" | "cancelled" | "stale";
 export interface TopicBoundary {
     afterIndex: number;
     topic: string;
@@ -197,10 +333,28 @@ export interface ChunkSummary {
     filesDeleted: string[];
     priority: "critical" | "high" | "normal" | "low";
 }
+export interface VisualArchive {
+    version: 1;
+    reader: {
+        provider: string;
+        id: string;
+        api: string;
+    };
+    sources: Array<{
+        id: string;
+        text: string;
+    }>;
+    frames: Array<{
+        data: string;
+        width: number;
+        height: number;
+    }>;
+    estimatedTokens: number;
+}
 export interface SmartCompactDetails {
     /** Correlates session_before_compact staging with session_compact commit. */
     runId?: string;
-    method: "eesv" | "single-pass" | "heuristic";
+    method: "eesv" | "single-pass" | "heuristic" | "native";
     generationFallbacks?: string[];
     chunkCount: number;
     topics: string[];
@@ -244,6 +398,24 @@ export interface SmartCompactDetails {
     redactions?: number;
     compactionState?: CompactionState;
     openLoops?: OpenLoop[];
+    visualArchive?: VisualArchive;
+    visualTokens?: number;
+    /** Ordered engine outcomes for this run; the applied engine is last. */
+    engineAttempts?: EngineAttempt[];
+    /** Provider API of an applied native compaction (decides replay readability). */
+    nativeApi?: string;
+    /**
+     * Opaque provider compaction state (native engine only). Persisted in the
+     * compaction entry and replayed via before_provider_request on the same
+     * route; never mutated, scrubbed or logged. Validate with isNativeState.
+     */
+    native?: NativeState;
+}
+export interface EngineAttempt {
+    engine: CompactionEngine;
+    outcome: "applied" | "skipped" | "failed";
+    /** Literal, content-free reason for skipped/failed attempts. */
+    reason?: string;
 }
 /**
  * Tiny mutable single-slot ref cell. We use it (instead of bare
@@ -279,6 +451,13 @@ export interface PendingCompaction {
     firstKeptEntryId: string;
     /** Branch head that produced this summary; must still be in active ancestry. */
     originBranchHeadId: string;
+    /** Reader identity and limits captured before preparation; absent proof cannot be reused. */
+    readerSignature?: string;
+    /** Content proof for the projected snapshot; appended tail messages are allowed. */
+    contextSnapshot?: {
+        messageCount: number;
+        hash: string;
+    };
     tokensBefore: number;
     details: SmartCompactDetails;
     /** Complete metrics payload, appended only after Pi emits session_compact. */
@@ -335,10 +514,12 @@ export type VerificationGap = {
     resolved?: boolean;
 } | {
     kind: "missing-constraint";
-    text: string;
+    text: string; /** Where the required rule came from, for diagnosis. */
+    origin?: string;
 } | {
     kind: "missing-decision";
     summary: string;
+    answer?: string;
 } | {
     kind: "missing-goal";
     goal: string;
@@ -532,6 +713,8 @@ export interface CachedExtraction {
     entryIdsFp?: EntryIdFingerprint;
     /** Compact pruned fingerprint (replaces `keptEntryIds` for new caches). */
     keptEntryIdsFp?: EntryIdFingerprint;
+    /** Hash of the exact pruned message domain; IDs alone do not capture context edits. */
+    messagePrefixHash?: string;
 }
 /** An open loop — unresolved task detected during compaction */
 export interface OpenLoop {
@@ -619,6 +802,8 @@ export interface SessionMessageEntry {
     type: "message";
     id: string;
     message: unknown;
+    /** Intentional host projection: never replace it with raw JSONL content. */
+    contextEdited?: boolean;
 }
 export interface ProgressState {
     phase: number;

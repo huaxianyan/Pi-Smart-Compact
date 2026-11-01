@@ -26,9 +26,9 @@ import type { PendingRef } from "./run-context.ts";
  * Co-operative cancellation surface that the extension entry point can hand
  * back to itself to drive an *external* hard timeout.
  *
- * Setting `timedOut = true` and calling `abort()` from outside the pipeline
- * is the single source of truth for "give up on smart compaction and let Pi
- * run its native compact". The orchestrator notices the flag and:
+ * Calling abort() marks an external hard timeout. The requesting host decides
+ * whether native compaction may follow; manual callers do not get an implicit
+ * fallback. The orchestrator:
  *
  *   - skips all remaining side effects (state persist, ctx.compact apply),
  *   - clears `pendingRef` in finally,

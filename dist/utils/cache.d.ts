@@ -13,6 +13,8 @@ import type { Model, Api, AssistantMessage, Context } from "@earendil-works/pi-a
 import { type SmartCompactServices } from "../infra/services.ts";
 export declare function recordMetric(m: LLMCallMetric, services: SmartCompactServices): void;
 export declare function effectivePromptInputTokens(inputTokens: number, cacheHitTokens: number, cacheWriteTokens?: number): number;
+/** Share of the complete wire prompt served from the provider cache, capped at 1. */
+export declare function cacheHitRateOf(inputTokens: number, cacheHitTokens: number, cacheWriteTokens: number): number;
 export declare function getMetricsSummary(services: SmartCompactServices): {
     totalCalls: number;
     totalInput: number;
@@ -48,8 +50,10 @@ export declare function recordExtractionCacheMiss(services: SmartCompactServices
  * @param keptEntryIds — Ordered entry IDs that survived pruning. This is the
  *   index domain used for safe incremental extraction prefix matching.
  */
-export declare function saveCachedExtraction(sessionId: string, extraction: StructuredExtraction, msgCount: number, firstEntryId?: string, lastEntryId?: string, entryIds?: string[], keptEntryIds?: string[]): void;
-export declare function loadCachedExtraction(sessionId: string): CachedExtraction | null;
+export declare function saveCachedExtraction(sessionId: string, extraction: StructuredExtraction, msgCount: number, firstEntryId?: string, lastEntryId?: string, entryIds?: string[], keptEntryIds?: string[], messages?: readonly LlmMessage[]): void;
+export declare function loadCachedExtraction(sessionId: string, options?: {
+    readOnly?: boolean;
+}): CachedExtraction | null;
 export declare function mergeExtractions(base: StructuredExtraction, delta: StructuredExtraction, baseMsgCount: number, deltaMessages?: LlmMessage[], deltaToolCalls?: ToolCallIndex): StructuredExtraction;
 /** Append a fully materialized payload after an external lifecycle commits. */
 export declare function appendMetricsSnapshot(sessionId: string, snapshot: Omit<CompactMetricsEntry, "ts" | "sessionId">): Promise<boolean>;

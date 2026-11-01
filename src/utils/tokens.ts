@@ -3,78 +3,106 @@
  */
 
 import { CHARS_PER_TOKEN, TUNING } from "../constants.ts";
-import type { LlmMessage, ProviderCapabilities } from "../types.ts";
+import type { LlmMessage, ProviderCacheCaps, ProviderCapabilities } from "../types.ts";
 import { lruGet, lruSet } from "./lru.ts";
 
 const PROVIDER_MAP: Record<string, ProviderCapabilities> = {
   // ── Anthropic family ──
+  // Explicit per-message breakpoints, 5m/1h TTLs; 1h writes cost 2x base
+  // input, reads 0.1x (newer models lower). TTL is measured from request start.
   "zai-anthropic": {
     maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "high",
     instructionFollowing: "high", tokenRatioEstimate: 3.5, concurrencyLimit: 3,
     cacheStrategy: "anthropic", timeoutMultiplier: 1.2, singlePassTokenMultiplier: 1.0, multimodal: "metadata-only",
+    // No documented marker contract for this Anthropic-compatible route;
+    // implicit keeps anchor-cache rewriting active until verified.
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 0.2, routingKey: null },
   },
+  // Moonshot documents a top-level cache_control field for the
+  // Anthropic-compatible endpoint and that message-level markers are ignored.
   "kimi-coding": {
     maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "high",
     instructionFollowing: "high", tokenRatioEstimate: 3.5, concurrencyLimit: 2,
     cacheStrategy: "anthropic", timeoutMultiplier: 1.5, singlePassTokenMultiplier: 0.95, multimodal: "metadata-only",
+    cacheControl: { level: "explicit-toplevel", ttlOptionsMs: [300_000, 3_600_000], writeMultiplier: 2, readMultiplier: 0.1, routingKey: null },
   },
   "anthropic": {
     maxOutputTokens: 8192, supportsTools: true, jsonReliability: "high",
     instructionFollowing: "high", tokenRatioEstimate: 3.5, concurrencyLimit: 3,
     cacheStrategy: "anthropic", timeoutMultiplier: 1.2, singlePassTokenMultiplier: 1.0, multimodal: "native",
+    cacheControl: { level: "explicit-message", ttlOptionsMs: [300_000, 3_600_000], writeMultiplier: 2, readMultiplier: 0.1, routingKey: null },
   },
   // ── OpenAI family ──
+  // Implicit caching by default; GPT-5.6+ adds explicit breakpoints on newer
+  // request shapes. prompt_cache_key improves routing stickiness.
   "openai": {
     maxOutputTokens: 16384, supportsTools: true, jsonReliability: "high",
     instructionFollowing: "high", tokenRatioEstimate: 4.0, concurrencyLimit: 5,
     cacheStrategy: "openai", timeoutMultiplier: 1.0, singlePassTokenMultiplier: 1.15, multimodal: "native",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 0.25, routingKey: { location: "body", name: "prompt_cache_key" } },
   },
   // ── Google family ──
+  // Implicit caching is default on 2.5+; explicit cachedContents is a separate
+  // server resource, not a wire-level TTL control.
   "google": {
     maxOutputTokens: 8192, supportsTools: true, jsonReliability: "high",
     instructionFollowing: "high", tokenRatioEstimate: 3.8, concurrencyLimit: 3,
     cacheStrategy: "openai", timeoutMultiplier: 1.15, singlePassTokenMultiplier: 1.1, multimodal: "native",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 0.25, routingKey: null },
   },
   // ── DeepSeek family ──
+  // Automatic disk caching; best-effort hits, entries cleared after hours to
+  // days. No developer control surface documented.
   "deepseek": {
     maxOutputTokens: 8192, supportsTools: true, jsonReliability: "medium",
     instructionFollowing: "medium", tokenRatioEstimate: 3.6, concurrencyLimit: 2,
     cacheStrategy: "none", timeoutMultiplier: 1.5, singlePassTokenMultiplier: 0.85, multimodal: "metadata-only",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 0.1, routingKey: null },
   },
   // ── MiniMax family ──
+  // Passive caching (M3); explicit cache_control exists only on M2.x via the
+  // Anthropic-compatible API. Hit price is ~0.2x input.
   "minimax": {
-    maxOutputTokens: 4096, supportsTools: "probe", jsonReliability: "medium",
+    // 4096 cut the 6000-token balanced summary budget; M2.7/M3 allow 131k+.
+    maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "medium",
     instructionFollowing: "medium", tokenRatioEstimate: 3.8, concurrencyLimit: 2,
     cacheStrategy: "anthropic", timeoutMultiplier: 1.6, singlePassTokenMultiplier: 0.8, multimodal: "metadata-only",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 0.2, routingKey: null },
   },
   // ── Xiaomi family ──
   "xiaomi-token-plan": {
     maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "medium",
     instructionFollowing: "medium", tokenRatioEstimate: 3.3, concurrencyLimit: 2,
     cacheStrategy: "openai", timeoutMultiplier: 1.35, singlePassTokenMultiplier: 0.9, multimodal: "metadata-only",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 1, routingKey: null },
   },
   "xiaomi-mimo": {
     maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "medium",
     instructionFollowing: "medium", tokenRatioEstimate: 3.3, concurrencyLimit: 2,
     cacheStrategy: "anthropic", timeoutMultiplier: 1.35, singlePassTokenMultiplier: 0.9, multimodal: "metadata-only",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 1, routingKey: null },
   },
   // ── CrofAI family ──
   "crofai": {
     maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "medium",
     instructionFollowing: "medium", tokenRatioEstimate: 3.8, concurrencyLimit: 3,
     cacheStrategy: "none", timeoutMultiplier: 1.2, singlePassTokenMultiplier: 0.95, multimodal: "metadata-only",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 1, routingKey: null },
   },
   // ── Mistral family ──
   "mistral": {
     maxOutputTokens: 8192, supportsTools: true, jsonReliability: "high",
     instructionFollowing: "high", tokenRatioEstimate: 3.5, concurrencyLimit: 3,
     cacheStrategy: "openai", timeoutMultiplier: 1.2, singlePassTokenMultiplier: 1.0, multimodal: "metadata-only",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 1, routingKey: null },
   },
   // ── xAI / Grok family ──
+  // Automatic caching (~0.25x read); x-grok-conv-id improves engine routing.
   "xai": {
     maxOutputTokens: 8192, supportsTools: true, jsonReliability: "medium",
     instructionFollowing: "high", tokenRatioEstimate: 3.8, concurrencyLimit: 3,
     cacheStrategy: "openai", timeoutMultiplier: 1.2, singlePassTokenMultiplier: 1.0, multimodal: "native",
+    cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 0.25, routingKey: { location: "header", name: "x-grok-conv-id" } },
   },
 };
 
@@ -99,6 +127,9 @@ const DEFAULT_CAPS: ProviderCapabilities = {
   maxOutputTokens: 8192, supportsTools: "probe", jsonReliability: "medium",
   instructionFollowing: "medium", tokenRatioEstimate: 3.8, concurrencyLimit: 2,
   cacheStrategy: "none", timeoutMultiplier: 1.35, singlePassTokenMultiplier: 0.9, multimodal: "metadata-only",
+  // Unknown provider: assume implicit caching but claim no discount, premium
+  // or control surface until documentation says otherwise.
+  cacheControl: { level: "implicit", ttlOptionsMs: [], writeMultiplier: 1, readMultiplier: 1, routingKey: null },
 };
 
 export function getProviderCaps(provider: string): ProviderCapabilities {
@@ -111,11 +142,31 @@ export function getProviderCaps(provider: string): ProviderCapabilities {
   return DEFAULT_CAPS;
 }
 
+/** Documented prompt-cache control surface for a provider; conservative defaults for unknowns. */
+export function getProviderCacheCaps(provider: string | undefined): ProviderCacheCaps {
+  return (provider ? getProviderCaps(provider) : DEFAULT_CAPS).cacheControl;
+}
+
 /** Finite context usage percentage; invalid/unknown window metadata is 0%. */
 export function safeContextPercent(totalTokens: number | null | undefined, contextWindow: number | null | undefined): number {
   if (!Number.isFinite(totalTokens) || !Number.isFinite(contextWindow)) return 0;
   if ((totalTokens ?? 0) <= 0 || (contextWindow ?? 0) <= 0) return 0;
   return (totalTokens as number) / (contextWindow as number) * 100;
+}
+
+/**
+ * Window for automatic trigger/preparation percentages: maxContextTokens when
+ * set (>0) and below a valid model window, else the model window unchanged.
+ * Hard headroom checks must keep using model.contextWindow.
+ */
+export function effectiveContextWindow(
+  model: { contextWindow: number } | undefined,
+  config: { maxContextTokens?: number },
+): number | undefined {
+  const window = model?.contextWindow;
+  const cap = config.maxContextTokens;
+  if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) return window;
+  return typeof cap === "number" && Number.isFinite(cap) && cap > 0 && cap < window ? cap : window;
 }
 
 /**
@@ -160,11 +211,6 @@ const _fallbackCalibration = new TokenCalibrationStore();
 
 function calibrationKey(provider: string, model?: string): string {
   return model ? provider + "/" + model : provider + "/*";
-}
-
-/** @internal Test-only reset; do not call from production code. */
-export function __resetTokenCalibrationForTests(): void {
-  _fallbackCalibration.clear();
 }
 
 /** JSON-density tuning knobs (named, not inline magic numbers). */
