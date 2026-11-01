@@ -1,5 +1,5 @@
 # Build output
-dist/
+# dist/ 由本 fork 提交：Git 安装直接加载 dist/index.js，上游不入库 dist。
 
 # Backups
 *.backup
