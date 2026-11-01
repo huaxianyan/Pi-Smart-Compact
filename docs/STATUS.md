@@ -85,3 +85,15 @@
 - 修复：`retentionCeiling` 在 `targetRetainedTokens >= totalTokens` 时退化为 `adaptiveKeepTokens`（与 force 同义）。保留比实际还多的内容没有意义，此时改用最小尾部。修复后复算：1M @182k 释放 70.2%、1M @270k 释放 79.8%、976k @270k 释放 80.9%，全部 `viable`；186k @166k（44.0%）与 372k @270k（31.1%）行为不变。
 - 附带：非 force 分支的跳过警告改为带上 `compactionPlanReasonText(plan.reason)`。原先只说「计划不可行」，无法从会话日志判断是哪条判定失败，这次排查就只能靠复刻源码重算。
 - 边界：`dist/index.js` 仍是手工修改（本机无 Bun），已 `node --check` 通过并与 `src/` 逐处对齐；未重跑 `bun build`、`bun test`。
+
+## 2026-11-01（再续）：校验闸门不再丢弃可用的摘要
+
+- 现象：`Smart compact stopped safely in 72.8s · no summary applied · Pi fallback continues`。
+- 定位：`~/.pi/agent/.cache/compact-metrics.jsonl` 里 `2026-11-01T07:08:38.460Z` 一条，`failureKind: verification`、`verificationStage: post-synthesis`、`method: single-pass`、`verificationScore: 80`、`remainingVerificationGaps: 1`、`verificationGapKinds: ["inconsistency"]`、`totalCalls: 2`。即摘要生成成功（输入 135,946 / 输出 7,743），失败在校验，不是 LLM 调用。
+- 这不是本轮改动引入的：同一 failureKind 从 2026-10-19 起累计 21 次，是长期系统性失败。
+- 根因：`verifySummary` 的通过条件是 `gaps.length === 0 && score >= 85`，任何单个缺口都直接失败；失败后先试确定性兜底摘要，兜底也不过关就 `throw VerificationGateError`，整个运行判为失败，交回 Pi 原生压缩。
+- 关键判断：原生压缩产出的是**同样未经校验**的模型摘要，结构化程度更低。所以「校验不过就丢弃」并没有换来安全，只是把一份 80/100 的摘要换成一份未校验的摘要。失败即丢弃不成立。
+- 修复：新增 `isSummaryAcceptable`，两档结果。`ok`（严格）继续用于展示与 `verified` 标记；`acceptable`（score >= 70 且不含 `fabricated-file`）决定是否丢弃。只有「会让 agent 去打开不存在路径」这一类缺口才真正丢弃。两道闸门（`post-synthesis`、`post-state`）都改用该判定，警告只在最后一道输出一次，带出剩余缺口内容。
+- 验证：判定单测四例——本次真实失败（80 + inconsistency）接受；95 + inconsistency 接受；90 + fabricated-file 丢弃；60 + 两缺口丢弃；全通过接受。`node --check` 通过，`src/` 与 `dist/` 两处闸门位置一致。
+- 已知次要问题（未修）：verify/patch 调用的输出被 `DEFAULT_CAPS.maxOutputTokens` 截到 8192，本次 verify 输出正好 8192，补丁很可能被截断而无法消除缺口。magpie 实际输出上限更高（workbuddy-ai 为 24000）。闸门放宽后截断不再导致整轮丢失，但补丁成功率仍受此限制，可另立一项。
+- 边界：`dist/index.js` 仍为手工修改，未跑 `bun build` 与测试。

@@ -5991,6 +5991,15 @@ function formatVerificationGap(gap) {
       return "Unsupported outcome claim: " + gap.claim.slice(0, TRUNC.SNIPPET);
   }
 }
+const FATAL_GAP_KINDS = new Set(["fabricated-file"]);
+const ACCEPTABLE_SCORE_FLOOR = 70;
+function isSummaryAcceptable(result) {
+  if (result.ok)
+    return true;
+  if (result.score < ACCEPTABLE_SCORE_FLOOR)
+    return false;
+  return !result.gaps.some((gap) => FATAL_GAP_KINDS.has(gap.kind));
+}
 function verificationFailureMessage(result) {
   if (result.ok)
     return null;
@@ -10481,12 +10490,12 @@ async function verifyAndPatch(rc) {
     }
   }
   const failure = verificationFailureMessage(verification);
-  if (failure)
+  if (failure && !isSummaryAcceptable(verification))
     throw new VerificationGateError(verification, initialScore, "post-synthesis");
   showProgressOverlay(rc.ctx, {
     phase: 4,
     phaseName: "Verify",
-    detail: "Passed " + verification.score + "/100 · 0 unresolved gaps",
+    detail: verification.gaps.length === 0 ? "Passed " + verification.score + "/100 · 0 unresolved gaps" : "Applied at " + verification.score + "/100 · " + verification.gaps.length + " unresolved gap(s)",
     explorationRounds: rc.explorationRounds
   });
   const out = rc;
@@ -10589,8 +10598,12 @@ function buildState(rc) {
     remainingGaps: postVerification.gaps
   };
   const failure = verificationFailureMessage(postVerification);
-  if (failure)
+  if (failure && !isSummaryAcceptable(postVerification))
     throw new VerificationGateError(postVerification, postInitialScore, "post-state");
+  if (failure) {
+    const firstGap = postVerification.gaps[0];
+    rc.notify("Compaction applied at " + postVerification.score + "/100 with " + postVerification.gaps.length + (postVerification.gaps.length === 1 ? " unresolved gap" : " unresolved gaps") + (firstGap ? ": " + formatVerificationGap(firstGap).slice(0, 200) : ""), "warning");
+  }
   const detModified = extraction.modifiedFiles.map((f) => f.path);
   const detRead = extraction.readFiles;
   const yieldEstimate = verifyCompactionYield(rc.totalTokens, rc.estimator.text(summary), rc.compactionPlan);

@@ -14,6 +14,7 @@ import {
 	repairSummaryDeterministically,
 	formatVerificationGap,
 	isDeterministicallyPatchable,
+	isSummaryAcceptable,
 	verificationFailureMessage,
 	VerificationGateError,
 } from "../../phases/verify.ts";
@@ -198,7 +199,7 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 	}
 
 	const failure = verificationFailureMessage(verification);
-	if (failure)
+	if (failure && !isSummaryAcceptable(verification))
 		throw new VerificationGateError(
 			verification,
 			initialScore,
@@ -207,7 +208,14 @@ export async function verifyAndPatch(rc: SynthesizedRc): Promise<VerifiedRc> {
 	showProgressOverlay(rc.ctx, {
 		phase: 4,
 		phaseName: "Verify",
-		detail: "Passed " + verification.score + "/100 · 0 unresolved gaps",
+		detail:
+			verification.gaps.length === 0
+				? "Passed " + verification.score + "/100 · 0 unresolved gaps"
+				: "Applied at " +
+					verification.score +
+					"/100 · " +
+					verification.gaps.length +
+					" unresolved gap(s)",
 		explorationRounds: rc.explorationRounds,
 	});
 

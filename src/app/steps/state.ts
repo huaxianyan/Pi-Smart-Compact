@@ -24,7 +24,7 @@ import { readRemediationHints } from "../../utils/damage.ts";
 import type { SmartCompactDetails, OpenLoop, CompactionState } from "../../types.ts";
 import { TRUNC, VERSION } from "../../constants.ts";
 import {
-  verifySummary, repairSummaryDeterministically, formatVerificationGap, verificationFailureMessage, VerificationGateError,
+  verifySummary, repairSummaryDeterministically, formatVerificationGap, verificationFailureMessage, isSummaryAcceptable, VerificationGateError,
 } from "../../phases/verify.ts";
 import { verifyCompactionYield } from "../../domain/yield-gate.ts";
 import { findSection, summaryEvidenceLine } from "../../domain/summary-parse.ts";
@@ -146,7 +146,21 @@ export function buildState(rc: VerifiedRc): StatedRc {
     remainingGaps: postVerification.gaps,
   };
   const failure = verificationFailureMessage(postVerification);
-  if (failure) throw new VerificationGateError(postVerification, postInitialScore, "post-state");
+  if (failure && !isSummaryAcceptable(postVerification))
+    throw new VerificationGateError(postVerification, postInitialScore, "post-state");
+  if (failure) {
+    // Final gate: this is the summary that actually gets applied, so this is the
+    // one place worth naming the remaining gap. Throwing would not be safer —
+    // the fallback is the same model output with no verification at all.
+    const firstGap = postVerification.gaps[0];
+    rc.notify(
+      "Compaction applied at " + postVerification.score + "/100 with " +
+        postVerification.gaps.length +
+        (postVerification.gaps.length === 1 ? " unresolved gap" : " unresolved gaps") +
+        (firstGap ? ": " + formatVerificationGap(firstGap).slice(0, 200) : ""),
+      "warning",
+    );
+  }
 
   const detModified = extraction.modifiedFiles.map(f => f.path);
   const detRead = extraction.readFiles;

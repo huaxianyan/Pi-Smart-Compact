@@ -1295,6 +1295,32 @@ export function verifySummary(
 	};
 }
 
+/**
+ * Gap kinds that make a summary actively unsafe to continue from: a fabricated
+ * path sends the agent to open something that does not exist. Every other kind
+ * is a quality signal — the summary is less complete, not misleading — and the
+ * summary is still far more useful than discarding it for native compaction,
+ * which produces an unverified summary with less structure.
+ */
+const FATAL_GAP_KINDS: ReadonlySet<VerificationGap["kind"]> = new Set([
+	"fabricated-file",
+]);
+
+/** Lowest score that still leaves a usable continuation summary. */
+const ACCEPTABLE_SCORE_FLOOR = 70;
+
+/**
+ * Two-tier outcome. `ok` stays the strict bar used for reporting; `acceptable`
+ * decides whether a completed run is thrown away. Throwing is reserved for
+ * summaries that would mislead, because the fallback is not safer — it is the
+ * same model output with no verification at all.
+ */
+export function isSummaryAcceptable(result: VerificationResult): boolean {
+	if (result.ok) return true;
+	if (result.score < ACCEPTABLE_SCORE_FLOOR) return false;
+	return !result.gaps.some((gap) => FATAL_GAP_KINDS.has(gap.kind));
+}
+
 /** Apply every safe, deterministic repair. Hallucination/inconsistency gaps stay visible for LLM/user review. */
 export function patchDeterministic(
 	summary: string,
