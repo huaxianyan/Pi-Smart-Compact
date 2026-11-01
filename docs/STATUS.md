@@ -97,3 +97,13 @@
 - 验证：判定单测四例——本次真实失败（80 + inconsistency）接受；95 + inconsistency 接受；90 + fabricated-file 丢弃；60 + 两缺口丢弃；全通过接受。`node --check` 通过，`src/` 与 `dist/` 两处闸门位置一致。
 - 已知次要问题（未修）：verify/patch 调用的输出被 `DEFAULT_CAPS.maxOutputTokens` 截到 8192，本次 verify 输出正好 8192，补丁很可能被截断而无法消除缺口。magpie 实际输出上限更高（workbuddy-ai 为 24000）。闸门放宽后截断不再导致整轮丢失，但补丁成功率仍受此限制，可另立一项。
 - 边界：`dist/index.js` 仍为手工修改，未跑 `bun build` 与测试。
+
+## 2026-11-01（工具链）：装上 Bun，dist 改为真正构建产物
+
+- 起因：评估上游 10.7.3 升级时发现两个硬阻塞——上游不入库 `dist/`（`git ls-tree v10.7.3 dist/` 为空），而本机没有 Bun/esbuild/tsc，此前 `dist/index.js` 全是手工改的。先验证工具链，再谈合并。
+- 安装：`npm install -g bun` → **Bun 1.4.4**，与上游 10.7.1 记录的 CI 工具链版本一致。
+- 构建：`bun run build` 成功。`dist/index.js` 0.63 MB、`dist/extension-api.js` 13.31 KB，外加三个 scripts bundle。产物逐项核对包含本轮全部源码改动（`AUTO_TRIGGER_TIMEOUT_CAP_MS=600000`、`normalizeSummaryHeadings`、`isSummaryAcceptable`、`targetRetainedTokens >= totalTokens`、`maxInputTokens: 900000`）。**`dist/index.js` 自此是构建产物，不再是手改文件。**
+- 声明生成仍不可用：`bun x tsc --emitDeclarationOnly` 报 TS2688（缺 `@types/node`、`@types/bun`），正是本文档 2026-10-15 记过的那个坑——tsc 报 TS2688 后跳过语义检查、只输出声明。已用 `git checkout -- 'dist/**/*.d.ts'` 还原已提交的声明树。公开契约（包根 `types` 与 `./extension-api`）本轮未变，还原安全；新加的两个函数都是内部导出，不在 `exports` 里。
+- 测试：`bun test` → 772 个测试 / 83 个文件，**60 个失败**。在 `4e4936d` 建临时 worktree 跑同一套做基线，失败集合**逐条一致**：无新增、无修掉。失败均为环境性（Windows `umask 000`、git root 过期、sqlite FTS、lease 目录不可创建），不是代码缺陷。临时 worktree 与备份已删除。
+- 测试抓到一个真实回归：把 `AUTO_TRIGGER_MAX_LLM_CALLS` 提到 12 会抹掉「自动运行的调用数低于手动默认值」这条设计约束（12 ≥ 全部模式默认），该常量从此永不生效。改为 **8**：仍容纳 2–3 个 batch + assembly + 一次补丁，且仍把 thorough 从 12 压到 8。`test/mode-policy.test.ts` 的断言按新策略更新。
+- 对下一步的意义：构建链路已通，10.7.3 合并的两个阻塞去掉一个（另一个是 extension-api 协议需在 10.x 钩子上重新实现）。

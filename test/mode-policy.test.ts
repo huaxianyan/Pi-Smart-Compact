@@ -9,12 +9,12 @@ const extraction = (partial: Partial<StructuredExtraction> = {}): StructuredExtr
 
 describe("compaction mode policy", () => {
   it("keeps preset defaults finite, automatic runs capped, and explicit manual overrides usable", () => {
-    expect(resolveCallBudget(0, "fast", 0, true)).toBe(3);
-    expect(resolveCallBudget(0, "balanced", 0, true)).toBe(4);
-    expect(resolveCallBudget(0, "thorough", undefined, true)).toBe(4);
+    expect(resolveCallBudget(0, "fast", 0, true)).toBe(4);
+    expect(resolveCallBudget(0, "balanced", 0, true)).toBe(8);
+    expect(resolveCallBudget(0, "thorough", undefined, true)).toBe(8);
     expect(resolveCallBudget(2, "thorough", undefined, true)).toBe(2);
     expect(resolveCallBudget(0, "fast", 10)).toBe(10);
-    expect(resolveCallBudget(0, "fast", 10, true)).toBe(4);
+    expect(resolveCallBudget(0, "fast", 10, true)).toBe(8);
     expect(effectiveBudget(0, 100_000, 0)).toBe(100_000);
   });
   it("uses pressure first and deterministic risk second in auto mode", () => {

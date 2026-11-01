@@ -30,7 +30,7 @@ export const AUTO_TRIGGER_TIMEOUT_CAP_MS = 600_000;
  * leave room for one call per batch plus final assembly; a ceiling below that
  * pushes whole batches onto the deterministic fallback before they are tried.
  */
-export const AUTO_TRIGGER_MAX_LLM_CALLS = 12;
+export const AUTO_TRIGGER_MAX_LLM_CALLS = 8;
 /** Suppress proactive settled-trigger churn after any confirmed compaction. */
 export const SETTLED_TRIGGER_COOLDOWN_MS = 10 * 60_000;
 
