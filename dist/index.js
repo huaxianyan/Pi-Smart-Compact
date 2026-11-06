@@ -5662,6 +5662,9 @@ function resolveCallBudget(configured, mode, override, automatic = false) {
   const budget = effectiveBudget(configured, MODE_POLICIES[mode].maxLlmCalls, override);
   return automatic ? Math.min(budget, AUTO_TRIGGER_MAX_LLM_CALLS) : budget;
 }
+function singlePassTokenLimit(input) {
+  return Math.round(input.singlePassMaxTokens * input.providerMultiplier * MODE_POLICIES[input.mode].singlePassMultiplier);
+}
 
 // src/ui/overlays.ts
 import { DynamicBorder as DynamicBorder2 } from "@earendil-works/pi-coding-agent";
@@ -13716,7 +13719,11 @@ async function summarizeConversation(rc) {
   }
   const shouldSkipExplore = !policy.explore;
   const convText = rc.convText;
-  const singlePassMaxTokens = Math.round(pc.singlePassMaxTokens * rc.providerCaps.singlePassTokenMultiplier * policy.singlePassMultiplier);
+  const singlePassMaxTokens = singlePassTokenLimit({
+    singlePassMaxTokens: pc.singlePassMaxTokens,
+    providerMultiplier: rc.providerCaps.singlePassTokenMultiplier,
+    mode: rc.mode
+  });
   const singleRequest = rc.convTokens < singlePassMaxTokens ? buildSinglePassRequest(convText, extraction, null, rc.prevContext + rc.projectCtx, rc.summaryModel, pc.summaryBudgetTokens, rc.config.focusWeighting ? rc.focus : undefined) : undefined;
   rc.vlog("Tier=" + rc.tier + " | convTokens=" + rc.convTokens + " | singlePassMax=" + singlePassMaxTokens);
   let finalSummary;
@@ -21257,7 +21264,11 @@ async function createModelFeasibilityResolver(ctx, config, requestedMode = confi
     const mode = resolveMode(modePreference, shared.contextPercent, data.extraction, continuityRisk(data.previousState) + (prepared.adapted ? 12 : 0));
     const convTokens = prepared.estimator.text(data.convText);
     const zeroCall = config.zeroCallEnabled !== false && mode === "fast" && !steering.focus && !steering.userNote && deterministicExtractionConfidence(data.extraction, { conversationTokens: convTokens, toolPercent: shared.toolPercent }) >= 0.85;
-    const singlePassLimit = Math.round(prepared.profileCfg.singlePassMaxTokens * prepared.providerCaps.singlePassTokenMultiplier * MODE_POLICIES[mode].singlePassMultiplier);
+    const singlePassLimit = singlePassTokenLimit({
+      singlePassMaxTokens: prepared.profileCfg.singlePassMaxTokens,
+      providerMultiplier: prepared.providerCaps.singlePassTokenMultiplier,
+      mode
+    });
     const single = convTokens < singlePassLimit;
     const requests = [];
     if (!zeroCall) {

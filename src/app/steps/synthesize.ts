@@ -42,6 +42,7 @@ import {
  MODE_POLICIES,
  modeFromLegacyProfile,
  resolveMode,
+ singlePassTokenLimit,
 } from "../mode-policy.ts";
 import { createBatches } from "../../utils/helpers.ts";
 import { errorDetail, reportIssue } from "../../utils/issues.ts";
@@ -177,11 +178,11 @@ export async function summarizeConversation(
  // second `serializeConversation` over the same pruned array (~50ms on
  // 5k-message sessions).
  const convText = rc.convText;
- const singlePassMaxTokens = Math.round(
-  pc.singlePassMaxTokens *
-  rc.providerCaps.singlePassTokenMultiplier *
-  policy.singlePassMultiplier,
- );
+ const singlePassMaxTokens = singlePassTokenLimit({
+  singlePassMaxTokens: pc.singlePassMaxTokens,
+  providerMultiplier: rc.providerCaps.singlePassTokenMultiplier,
+  mode: rc.mode,
+ });
  const singleRequest = rc.convTokens < singlePassMaxTokens ? buildSinglePassRequest(
   convText, extraction, null, rc.prevContext + rc.projectCtx, rc.summaryModel,
   pc.summaryBudgetTokens, rc.config.focusWeighting ? rc.focus : undefined,

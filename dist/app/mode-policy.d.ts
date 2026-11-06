@@ -27,4 +27,15 @@ export declare function batchOutputLimit(mode: EffectiveCompactionMode, chunks: 
 export declare function effectiveBudget(configured: number, modeDefault: number, override?: number): number;
 /** Shared by initial preparation and auto-mode refinement. Zero means preset, never unlimited. */
 export declare function resolveCallBudget(configured: number, mode: EffectiveCompactionMode, override?: number, automatic?: boolean): number;
+/**
+ * Prompt tokens a single-pass summary may summarize.
+ *
+ * One definition for the planner, the feasibility probe and the synthesizer.
+ * They previously recomputed the same product independently.
+ */
+export declare function singlePassTokenLimit(input: {
+    singlePassMaxTokens: number;
+    providerMultiplier: number;
+    mode: EffectiveCompactionMode;
+}): number;
 //# sourceMappingURL=mode-policy.d.ts.map

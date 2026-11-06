@@ -105,3 +105,21 @@ export function resolveCallBudget(configured: number, mode: EffectiveCompactionM
   const budget = effectiveBudget(configured, MODE_POLICIES[mode].maxLlmCalls, override);
   return automatic ? Math.min(budget, AUTO_TRIGGER_MAX_LLM_CALLS) : budget;
 }
+
+/**
+ * Prompt tokens a single-pass summary may summarize.
+ *
+ * One definition for the planner, the feasibility probe and the synthesizer.
+ * They previously recomputed the same product independently.
+ */
+export function singlePassTokenLimit(input: {
+  singlePassMaxTokens: number;
+  providerMultiplier: number;
+  mode: EffectiveCompactionMode;
+}): number {
+  return Math.round(
+    input.singlePassMaxTokens *
+      input.providerMultiplier *
+      MODE_POLICIES[input.mode].singlePassMultiplier,
+  );
+}

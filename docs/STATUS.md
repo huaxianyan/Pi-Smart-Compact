@@ -120,3 +120,21 @@
 - 适配 10.x 的两处必要修正：`SessionRunLock.isRunning` → `isSessionActive`；`registerExtensionApi` 在宿主没有 `events` 总线时跳过注册（与上游 `hindsight-tracking.ts`、`compaction-delivery.ts` 同样的 `typeof` 判断），否则整个扩展会在缺少该能力的宿主上构造失败——这一条不修会让 30 多个上游测试整片失败。
 - 验证：`bun run typecheck` 0 错误；`bun test` 2061 个测试，失败集合与纯净 v10.7.3 逐条对齐，唯一差异是 Windows 文件锁导致的偶发 `EBUSY`（单跑 3/3 通过，上游同样偶发）；`bun run build` 完整通过，产物 4 个 bundle（index 1.14 MB / extension-api 15.69 KB / rtk 27 KB / mnemopi-worker 7.39 KB）+ 129 个声明文件。
 - 与 9.7.1 的差异提醒：10.x 新增 Hindsight、Mnemopi、rtk、Home 界面等子系统，`/smart-compact` 的交互与设置项有变化；本机 `settings.json` 的 `smartCompact` 配置继续沿用，但 `singlePassMaxTokens` 已下调到 300000 —— 上游 thorough 的输入预算是 300k，原来的 450000 会让 single-pass 阈值（×0.9 = 405k）超过输入预算而触发 BudgetExceeded。
+
+## 2026-11-06：把 workbuddy 的压缩触发点提到 700k
+
+- 实测 workbuddy 的真实窗口是 **1,048,576**（2²⁰），不是声明的 1,000,000。用 4.1MB 超限输入探测拿到后端原话 `prompt is too long: 1551252 tokens > 1048576 maximum`；该请求记入 usage 时 `in=0, credits=None`，即超限被拒不计费。另发 675,677 与 765,632 token 两个成功探针（均 200），确认 765k 实测可用。
+- 由此纠正一处长期误算：`reserveTokens: 730000` 在 1,048,576 窗口下的触发点是 **318,576**，不是此前记录的 270,000（那个数按 1M 算的）。
+- 本次只改 `magpie/workbuddy/deepseek-v4.1-flash` 一条：`reserveTokens` 730000 → **348576**（= 1,048,576 − 700,000），触发点 700k。
+- **原先的判断被实测推翻。** 曾认为 700k 必须把 `keepRecentTokens` 抬到 280k，理由是「要摘要的量 = 触发点 − keepRecent」必须小于单趟上限。实测 `planCompactionWindow` 后发现 `targetContextPercent`（thorough = 50）已经让保留量停在半个窗口附近：1M 窗口下 `targetRetainedTokens ≈ 511,788`，一旦上下文超过它，压缩只削掉超出部分。实测各水位：
+  | 触发时上下文 | 保留 | 要摘要 | 单趟（270k 上限） |
+  | --- | --- | --- | --- |
+  | 270k | 47,250 | 222,750 | 是 |
+  | 500k | 50,000 | 450,000 | 否（`targetRetained ≥ totalTokens` 走最小尾部） |
+  | 700k | 507,500 | 192,500 | 是 |
+  | 850k | 510,000 | 340,000 | 否 |
+  所以 700k 只需要动 `reserveTokens`，`keepRecentTokens` 与 `singlePassMaxTokens` 都不必改。真正的悬崖在触发点逼近 962k（≈ 保留量 + 单趟上限）时才出现。
+- 代码改动（行为等价，纯去重）：`singlePassMaxTokens × providerMultiplier × MODE_POLICIES[mode].singlePassMultiplier` 原本在 `model-feasibility.ts` 与 `phases/synthesize.ts` 各算一遍，抽成 `mode-policy.ts` 的 `singlePassTokenLimit()`。两处乘积若各自漂移，规划器与合成器会对同一轮摘要给出不同结论。
+- **未修的已知缺口**：`singlePassTokenLimit` 没有按摘要模型自身窗口封顶，所以 profile 预算设得过大会让单趟请求超过小模型的窗口。曾尝试加 `min(limit, window × 0.8)`，但它会让 32k 模型在 fast 模式（2× 倍数）下由「不可行」变成「可行」——`test/model-feasibility.test.ts` 正是守这条安全线（`expect(eligible(f.small, "summary", "fast").selectable).toBe(false)`），加 clamp 等于削弱它。真实溢出由 `modelRequestCapacityReason` 在下游拦截，所以本次不加。
+- **待处理的配置缺口**：`models.json` 已把 `workbuddy-ai/deepseek-v4.1-flash` 改名为 `-sg`，但 `modelOverrides` 里仍是不带 `-sg` 的旧 key（这条已失效），而 `workbuddy-ai/deepseek-v4.1-flash-sg` 与 `workbuddy/glm-5.3-flash` 都没有 override，会退回全局 136000（触发点 912k），在 1,048,576 之前就撞墙。本次按要求只改 workbuddy 一条，缺口保留待单独处理。
+- 验证：`bun run typecheck` 0 错误；`bun test` 2065 个测试，失败集合与基线一致（61 fail vs 基线 63；`index-tool.test.ts` 那条在改动前也失败，原因是测试夹具缺 `ctx.modelRegistry`）。

@@ -12,7 +12,7 @@ import { pruneRedundant } from "../utils/pruning.ts";
 import { createBatches, getPreviousCompactionContext } from "../utils/helpers.ts";
 import { resolveModels } from "./model-routing.ts";
 import { planManualPreflight, preflightDamageMedian, prepareManualPreflightContext, preparePreflightProfile } from "./preflight.ts";
-import { batchOutputLimit, continuityRisk, deterministicExtractionConfidence, MODE_POLICIES, resolveMode } from "./mode-policy.ts";
+import { batchOutputLimit, continuityRisk, deterministicExtractionConfidence, MODE_POLICIES, resolveMode, singlePassTokenLimit } from "./mode-policy.ts";
 import { recoverSourceMessages } from "./steps/recover.ts";
 import { loadExtractionContinuity, selectCachedExtraction } from "./steps/extract.ts";
 import { buildBatchRequest, buildSinglePassRequest, chunkLlmMessages, heuristicTopicBoundaries, type SynthesisRequest } from "../phases/synthesize.ts";
@@ -105,7 +105,11 @@ export async function createModelFeasibilityResolver(
   const convTokens = prepared.estimator.text(data.convText);
   const zeroCall = config.zeroCallEnabled !== false && mode === "fast" && !steering.focus && !steering.userNote &&
    deterministicExtractionConfidence(data.extraction, { conversationTokens: convTokens, toolPercent: shared.toolPercent }) >= 0.85;
-  const singlePassLimit = Math.round(prepared.profileCfg.singlePassMaxTokens * prepared.providerCaps.singlePassTokenMultiplier * MODE_POLICIES[mode].singlePassMultiplier);
+  const singlePassLimit = singlePassTokenLimit({
+   singlePassMaxTokens: prepared.profileCfg.singlePassMaxTokens,
+   providerMultiplier: prepared.providerCaps.singlePassTokenMultiplier,
+   mode,
+  });
   const single = convTokens < singlePassLimit;
   const requests: Array<{ phase: string; request: SynthesisRequest }> = [];
   if (!zeroCall) {
