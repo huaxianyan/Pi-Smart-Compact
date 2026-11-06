@@ -138,3 +138,13 @@
 - **未修的已知缺口**：`singlePassTokenLimit` 没有按摘要模型自身窗口封顶，所以 profile 预算设得过大会让单趟请求超过小模型的窗口。曾尝试加 `min(limit, window × 0.8)`，但它会让 32k 模型在 fast 模式（2× 倍数）下由「不可行」变成「可行」——`test/model-feasibility.test.ts` 正是守这条安全线（`expect(eligible(f.small, "summary", "fast").selectable).toBe(false)`），加 clamp 等于削弱它。真实溢出由 `modelRequestCapacityReason` 在下游拦截，所以本次不加。
 - **待处理的配置缺口**：`models.json` 已把 `workbuddy-ai/deepseek-v4.1-flash` 改名为 `-sg`，但 `modelOverrides` 里仍是不带 `-sg` 的旧 key（这条已失效），而 `workbuddy-ai/deepseek-v4.1-flash-sg` 与 `workbuddy/glm-5.3-flash` 都没有 override，会退回全局 136000（触发点 912k），在 1,048,576 之前就撞墙。本次按要求只改 workbuddy 一条，缺口保留待单独处理。
 - 验证：`bun run typecheck` 0 错误；`bun test` 2065 个测试，失败集合与基线一致（61 fail vs 基线 63；`index-tool.test.ts` 那条在改动前也失败，原因是测试夹具缺 `ctx.modelRegistry`）。
+
+## 2026-11-06（补）：修正 reserveTokens 的算法口径，补齐 workbuddy 族覆盖
+
+- **上一段把算法口径写错了，此处更正。** 上一段按实测上限 1,048,576 算出 `reserveTokens: 348576`，认为触发点是 700k。实际 pi 的触发公式是 `contextTokens > model.contextWindow - reserveTokens`（`dist/core/compaction/compaction.js:176`），而 `model.contextWindow` 取自 `models.json`（workbuddy 族写的是 1000000）。所以 348576 得到的是 **651,424**，不是 700,000。按声明值重算应为 `1,000,000 − 700,000 = 300,000`，已改。声明值不超过后端真实上限（1,048,576），按声明值算是保守的，只会多留约 48k headroom。
+- 补齐 workbuddy 族的三处缺口：
+  - `magpie/workbuddy/deepseek-v4.1-flash`：`reserveTokens` 348576 → **300000**（触发点 700k）。
+  - `magpie/workbuddy-ai/deepseek-v4.1-flash`：删除。`models.json` 已无此模型，这条 key 永远匹配不到，属于死配置。
+  - 新增 `magpie/workbuddy-ai/deepseek-v4.1-flash-sg` 与 `magpie/workbuddy/glm-5.3-flash`，均 `reserveTokens: 730000`（触发点 270k，与 deepseek 系列原有意图一致）。这两条此前缺失，会退回全局 136000（触发点 864k），在 1,048,576 之前就撞墙。
+- 校对结果：`models.json` 的 16 个模型与 16 条 `modelOverrides` 一一对应，无失效 key、无遗漏。
+- `workbuddy/glm-5.3-flash` 的真实上限存疑，记录以防误判：同一 upstream 账号先成功处理 919k 输入（`status=200, in=919232`），随后 1.55M 请求被拒并报 `prompt is too long: 100001 tokens > 100000 maximum`。100001/100000 与已成功的 919k 自相矛盾，判断它不是窗口值，该模型真实上限未确定。触发点沿用 270k。
