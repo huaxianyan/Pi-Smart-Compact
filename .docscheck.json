@@ -1,0 +1,12 @@
+{
+  "root_docs_allow": [
+    "EXTENSION_API.md",
+    "MIGRATING_TO_V8.md",
+    "configuration.md",
+    "evaluation.md",
+    "guide.md",
+    "hindsight-memory.md",
+    "identity.md",
+    "message-delivery.md"
+  ]
+}
